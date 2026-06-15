@@ -1,2 +1,5 @@
-# driver-behavior-monetization
-Driver behavior assessment and blockchain-based monetization using telematics metrics and Hyperledger Fabric.
+# DriverScoreChain
+
+DriverScoreChain is a blockchain-based driver behavior assessment and monetization system developed using Hyperledger Fabric.
+
+Repository: driver-behavior-monetization
