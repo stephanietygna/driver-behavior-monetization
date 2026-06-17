@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        background-color: #f4f4f9;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+      }
+
+      .form-container {
+        background: #fff;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        width: 90%;
+        max-width: 400px;
+        text-align: center;
+      }
+
+      .form-container h1 {
+        margin-bottom: 20px;
+        font-size: 24px;
+      }
+
+      .form-group {
+        margin-bottom: 15px;
+        text-align: left;
+      }
+
+      .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+
+      .form-group input {
+        width: 96%;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        font-size: 1rem;
+      }
+
+      .button-group {
+        display: flex;
+        justify-content: center;
+      }
+
+      .button-group button {
+        padding: 10px 20px;
+        border: none;
+        background-color: #007bff;
+        color: white;
+        border-radius: 8px;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+
+      .button-group button:hover {
+        background-color: #0056b3;
+      }
+
+      .links {
+        margin-top: 15px;
+        font-size: 0.9rem;
+      }
+
+      .links a {
+        color: #007bff;
+        text-decoration: none;
+      }
+
+      .user-buttons:not(#header .user-buttons) {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="header"></div>
+    <div class="form-container">
+      <h1>Registrar Usuário</h1>
+      <div class="form-group">
+        <label for="username">Nome de Usuário</label>
+        <input type="text" id="username" placeholder="Digite seu username" required>
+      </div>
+      <div class="form-group">
+        <label for="privateKey">Chave Privada EC (.pem)</label>
+        <input type="file" id="privateKey" accept=".pem" required>
+      </div>
+      <div class="button-group">
+        <button id="registerBtn">Registrar</button>
+      </div>
+      <div class="links">
+        <p>Já possui registro? <a href="login.html">Faça login</a>
+        </p>
+        <p>Dúvidas para registrar/logar? <a href="duvidas.html">Clique aqui</a>
+        </p>
+      </div>
+    </div>
+    <!-- Biblioteca Forge para manipulação de chaves -->
+    <script src="https://cdn.jsdelivr.net/npm/jsrsasign@10.5.25/lib/jsrsasign-all-min.js"></script>
+    <script>
+      fetch('/header.html').then(res => res.text()).then(html => {
+        const headerDiv = document.getElementById('header');
+        headerDiv.innerHTML = html;
+        // Executa scripts do header (pra funcionar o logout e controle)
+        headerDiv.querySelectorAll('script').forEach(oldScript => {
+          const newScript = document.createElement('script');
+          newScript.text = oldScript.textContent;
+          document.body.appendChild(newScript);
+          oldScript.remove();
+        });
+      });
+      document.getElementById('registerBtn').addEventListener('click', async () => {
+        const username = document.getElementById('username').value.trim();
+        const privateKeyFile = document.getElementById('privateKey').files[0];
+        if (!username || !privateKeyFile) {
+          alert('Preencha todos os campos!');
+          return;
+        }
+        try {
+          // 1. Ler a chave privada
+          const pemContents = await readFileAsText(privateKeyFile);
+          // 2. Validar formato PEM
+          if (!pemContents.includes('-----BEGIN PRIVATE KEY-----') && !pemContents.includes('-----BEGIN EC PRIVATE KEY-----')) {
+            throw new Error('Formato inválido. Use chave EC');
+          }
+          // 3. Criar objeto KEYUTIL
+          const keyObj = KEYUTIL.getKey(pemContents);
+          if (keyObj.type !== 'EC' || keyObj.curveName !== 'secp256r1') {
+            throw new Error('Chave deve ser EC prime256v1 (secp256r1)');
+          }
+          // 4. Gerar CSR
+          const csr = new KJUR.asn1.csr.CertificationRequest({
+            subject: {
+              str: '/CN=' + username + '/O=INMETROMSP/OU=client'
+            },
+            sbjpubkey: keyObj,
+            sigalg: 'SHA256withECDSA',
+            sbjprvkey: keyObj
+          });
+          const csrPem = csr.getPEM();
+          const csrFile = new Blob([csrPem], {
+            type: 'application/x-pem-file'
+          });
+          const formData = new FormData();
+          formData.append('username', username);
+          formData.append('csr', csrFile); // Enviar o arquivo, não o texto
+          const response = await fetch('/register', {
+            method: 'POST',
+            body: formData
+          });
+          const data = await response.json();
+          if (data.success) {
+            alert('Usuário registrado com sucesso!');
+            window.location.href = '/login.html';
+          } else {
+            if (data.message === 'pubKey exists') {
+              alert('A chave inserida já existe na rede com outro usuário!');
+            } else {
+              alert(data.message || 'Falha ao registrar usuário.');
+            }
+          }
+        } catch (error) {
+          console.error('Erro detalhado:', error);
+          alert(`Falha: ${error.message}\n\nCertifique-se que:\n1. A chave é EC P-256 (prime256v1)\n2. Está no formato PKCS#8\n3. Não está protegida por senha`);
+        }
+      });
+
+      function readFileAsText(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target.result);
+          reader.onerror = reject;
+          reader.readAsText(file);
+        });
+      }
+    </script>
+  </body>
+</html>

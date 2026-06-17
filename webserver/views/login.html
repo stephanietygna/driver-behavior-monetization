@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f4f9;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+      }
+
+      .form-container {
+        background: #fff;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        width: 100%;
+        max-width: 400px;
+        text-align: center;
+      }
+
+      .form-container h1 {
+        margin-bottom: 20px;
+        font-size: 24px;
+      }
+
+      .form-group {
+        margin-bottom: 15px;
+        text-align: left;
+      }
+
+      .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+
+      .form-group input {
+        width: 94%;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        font-size: 1rem;
+      }
+
+      .button-group {
+        display: flex;
+        justify-content: center;
+      }
+
+      .button-group button {
+        padding: 10px 20px;
+        border: none;
+        background-color: #007bff;
+        color: white;
+        border-radius: 8px;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+
+      .button-group button:hover {
+        background-color: #0056b3;
+      }
+
+      .form-group textarea {
+        width: 94%;
+        height: 80px;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        font-size: 1rem;
+      }
+
+      .links {
+        margin-top: 15px;
+        font-size: 0.9rem;
+      }
+
+      .links a {
+        color: #007bff;
+        text-decoration: none;
+      }
+
+      .challenge-container {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 20px;
+      }
+
+      .challenge-container button {
+        padding: 10px 20px;
+        border: none;
+        background-color: #007bff;
+        color: white;
+        border-radius: 8px;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="header"></div>
+    <div class="form-container">
+      <h1>Login de Usuário</h1>
+      <div class="form-group">
+        <div>
+          <label for="username">Nome de Usuário:</label>
+          <input type="text" id="user" name="user" placeholder="Digite seu nome de usuário" required>
+          <label for="fileInput">Chave Privada</label>
+          <input type="file" id="privateKey" accept=".pem">
+        </div>
+      </div>
+      <div class="button-group">
+        <button id="loginBtn">Login</button>
+      </div>
+      <div class="links">
+        <p>Não possui registro? <a href="register.html">Registre-se</a>
+        </p>
+        <p>Dúvidas para registrar/logar? <a href="duvidas.html">Clique aqui</a>
+        </p>
+      </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/jsrsasign@10.5.25/lib/jsrsasign-all-min.js"></script>
+    <script>
+      fetch('/header.html').then(res => res.text()).then(html => {
+        const headerDiv = document.getElementById('header');
+        headerDiv.innerHTML = html;
+        // Executa scripts do header (pra funcionar o logout e controle)
+        headerDiv.querySelectorAll('script').forEach(oldScript => {
+          const newScript = document.createElement('script');
+          newScript.text = oldScript.textContent;
+          document.body.appendChild(newScript);
+          oldScript.remove();
+        });
+      });
+      document.addEventListener('DOMContentLoaded', () => {
+        const userInput = document.getElementById('user');
+        const privateKeyInput = document.getElementById('privateKey');
+        const loginBtn = document.getElementById('loginBtn');
+        loginBtn.addEventListener('click', async () => {
+          const username = userInput.value.trim();
+          const privateKeyFile = privateKeyInput.files[0];
+          if (!username || !privateKeyFile) {
+            alert("Por favor, preencha todos os campos");
+            return;
+          }
+          try {
+            // 1. Buscar nonce do servidor
+            const challengeResponse = await fetch('/get-nonce', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                username
+              })
+            });
+            const challengeData = await challengeResponse.json();
+            if (!challengeData || challengeData.success !== true) {
+              throw new Error(challengeData.message || 'Não foi possível obter o desafio');
+            }
+            const serverNonce = challengeData.nonce;
+            // 2. Ler a chave privada do usuário
+            const privateKeyPEM = await readFileAsText(privateKeyFile);
+            // 3. Validar formato da chave
+            if (!privateKeyPEM.includes('-----BEGIN PRIVATE KEY-----') && !privateKeyPEM.includes('-----BEGIN EC PRIVATE KEY-----')) {
+              throw new Error('Formato inválido. Use chave EC no formato:\n-----BEGIN EC PRIVATE KEY-----\n...');
+            }
+            // 4. Criar objeto KEYUTIL
+            const keyObj = KEYUTIL.getKey(privateKeyPEM);
+            if (keyObj.type !== 'EC' || keyObj.curveName !== 'secp256r1') {
+              throw new Error('A chave deve ser EC prime256v1 (secp256r1)');
+            }
+            // 5. Assinar o nonce que veio do servidor
+            const sig = new KJUR.crypto.Signature({
+              alg: 'SHA256withECDSA'
+            });
+            sig.init(keyObj);
+            sig.updateString(serverNonce);
+            const signatureHex = sig.sign();
+            // 6. Enviar para o backend
+            const response = await fetch('/verify-login', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                username,
+                signature: hextob64(signatureHex),
+                nonce: serverNonce
+              })
+            });
+            const result = await response.json();
+            if (result.success) {
+              localStorage.setItem('token',result.token);
+              if (window.parent && window.parent.updateHeaderButtons){
+                window.parent.updateHeaderButtons();
+              }
+              alert("Autenticação bem-sucedida!");
+              window.location.href = '/index.html';
+            } else {
+              throw new Error(result.message || 'Falha na autenticação');
+            }
+          } catch (error) {
+            console.error("Erro no login:", error);
+            alert("Erro: " + error.message);
+          }
+        });
+
+        function readFileAsText(file) {
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result);
+            reader.onerror = reject;
+            reader.readAsText(file);
+          });
+        }
+      });
+    </script>
+  </body>
+</html>

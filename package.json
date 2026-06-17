@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "asn1.js": "^5.4.1",
+    "elliptic": "^6.6.1",
+    "express": "^5.1.0",
+    "fabric-ca-client": "^2.2.20",
+    "fabric-network": "^2.2.20",
+    "https": "^1.0.0"
+  }
+}

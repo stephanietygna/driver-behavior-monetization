@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dúvidas</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f4f4f9;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      padding-top: 80px;
+    }
+
+    .container {
+      background: #fff;
+      padding: 20px 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      width: 90%;
+      max-width: 700px;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+      color: #333;
+    }
+
+    .faq-item {
+      margin-bottom: 25px;
+    }
+
+    .faq-item h2 {
+      font-size: 1.25rem;
+      color: #007bff;
+      margin-bottom: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .faq-item p {
+      font-size: 1rem;
+      line-height: 1.5;
+      color: #555;
+      margin: 0;
+      max-height: 1000px;
+      transition: max-height 0.3s ease;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <div id="header"></div>
+  <div class="container">
+    <h1>Dúvidas Frequentes</h1>
+
+    <div class="faq-item">
+      <h2>Como gerar uma chave privada EC usando OpenSSL?</h2>
+      <p>
+        Você pode gerar uma chave privada EC com o comando:<br />
+        <code>openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:prime256v1 -out chave_privada.pem</code><br />
+        Isso criará um arquivo chamado <strong>chave_privada.pem</strong> contendo sua chave privada. Essa chave é do padrão <code>prime256v1</code> e em formato PKCS#8, que é o formato esperado pelo sistema.
+      </p>
+    </div>
+
+    <div class="faq-item">
+      <h2>Qual é o formato aceito para o upload de arquivos no sistema?</h2>
+      <p>
+        Atualmente, o sistema aceita arquivos nos formatos <strong>JSON</strong> e <strong>CSV</strong>. Outros formatos não são suportados.
+      </p>
+    </div>
+
+    <div class="faq-item">
+      <h2>Minha chave está segura ao usar no servidor?</h2>
+      <p>
+        A chave privada é processada de forma segura no servidor. Ela não é armazenada em nenhum lugar e é usada apenas para assinar transações temporariamente, não necessitando armazenar a chave em local algum ou transferir para o servidor.
+      </p>
+    </div>
+
+    <div class="faq-item">
+      <h2>Como faço para assinar um digest com minha chave privada?</h2>
+      <p>
+        Você deve carregar a chave privada no formulário, escolher o chaincode a ser executado, inserir os dados para processamento e pressionar o botão "Executar chaincode".
+      </p>
+    </div>
+  </div>
+  <script>
+    const queryButton = document.getElementById('queryButton');
+      const invokeButton = document.getElementById('invokeButton');
+      const loadingOverlay = document.getElementById('loadingOverlay');
+      fetch('/header.html').then(res => res.text()).then(html => {
+        const headerDiv = document.getElementById('header');
+        headerDiv.innerHTML = html;
+        headerDiv.querySelectorAll('script').forEach(oldScript => {
+          const newScript = document.createElement('script');
+          newScript.text = oldScript.textContent;
+          document.body.appendChild(newScript);
+          oldScript.remove();
+        });
+      });
+  </script>
+</body>
+</html>

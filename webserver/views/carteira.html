@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bem-vindo à Rede</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        background-color: #f4f4f9;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+      }
+
+      .menu {
+        position: absolute;
+        top: 10px;
+        left: 20px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        cursor: pointer;
+        border-radius: 8px;
+        font-size: 14px;
+        text-decoration: none;
+      }
+
+      .container {
+        background: #fff;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        width: 90%;
+        max-width: 500px;
+        text-align: center;
+      }
+
+      .container h1 {
+        margin-bottom: 20px;
+        font-size: 24px;
+      }
+
+      .container p {
+        font-size: 18px;
+        margin-bottom: 20px;
+      }
+
+      .login-btn {
+        position: absolute;
+        top: 10px;
+        right: 20px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        cursor: pointer;
+        border-radius: 8px;
+        font-size: 14px;
+      }
+
+      .login-btn:hover {
+        background-color: #0056b3;
+      }
+
+      .form-group {
+        margin-bottom: 15px;
+      }
+
+      .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+
+      .form-group input {
+        width: 96%;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        font-size: 1rem;
+      }
+
+      .button-group {
+        display: flex;
+        justify-content: center;
+        gap: 23px;
+      }
+
+      .button-group button {
+        padding: 10px 20px;
+        border: none;
+        background-color: #007bff;
+        color: white;
+        border-radius: 8px;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+
+      .button-group button:hover {
+        background-color: #0056b3;
+      }
+
+      /* Estilo do Popup */
+      .popup {
+        display: none;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: #fff;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        width: 80%;
+        max-width: 400px;
+        text-align: center;
+        z-index: 1000;
+      }
+
+      .popup .popup-content {
+        display: block;
+        text-align: center;
+      }
+
+      .popup .close-btn {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        font-size: 30px;
+        color: #888;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .popup .close-btn:hover {
+        color: #333;
+      }
+
+      /* Fundo escurecido atrás do popup */
+      .popup-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 999;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="header"></div>
+    <button onclick="window.location.href='/login.html'" id="login-btn" class="login-btn">Registrar</button>
+    <a href="/" class="menu">Menu</a>
+    <div class="container">
+      <h1>Sua carteira</h1>
+      <p>Saldo: <span id="saldo">0</span> créditos </p>
+      <div class="form-group">
+        <h2>Comprar créditos</h2>
+        <label>R$</label>
+        <input type="number" id="reais" onkeydown="return validarTecla(event)" oninput="atualizarValores('reais')" step="1" min="0"> = <input type="number" onkeydown="return validarTecla(event)" id="creditos" oninput="atualizarValores('creditos')" step="1" min="0"> Créditos <br>
+        <br>
+        <div class="button-group">
+          <button id="buyBtn">Comprar</button>
+          <button id="transferBtn">Transferir</button>
+        </div>
+      </div>
+    </div>
+    <div class="popup-overlay" id="overlay"></div>
+    <!-- Popup de Transferência -->
+    <div class="popup" id="transferPopup">
+      <button class="close-btn" onclick="closePopup()">X</button>
+      <h2>Transferir Créditos</h2>
+      <form id="transferForm">
+        <label for="receiver">Usuário:</label>
+        <input type="text" id="receiver" required>
+        <br>
+        <br>
+        <label for="amount">Quantia:</label>
+        <input type="number" id="amount" required min="1" step="1">
+        <br>
+        <br>
+        <button type="submit">Transferir</button>
+      </form>
+    </div>
+    <script>
+      fetch('/header.html').then(res => res.text()).then(html => {
+        const headerDiv = document.getElementById('header');
+        headerDiv.innerHTML = html;
+        // Executa scripts do header (pra funcionar o logout e controle)
+        headerDiv.querySelectorAll('script').forEach(oldScript => {
+          const newScript = document.createElement('script');
+          newScript.text = oldScript.textContent;
+          document.body.appendChild(newScript);
+          oldScript.remove();
+        });
+      });
+      document.addEventListener('DOMContentLoaded', async () => {
+        updateButton(); // Chama updateButton uma vez, quando a página for carregada
+        await fetchBalance(); // Atualiza o saldo quando a página carregar
+      });
+      async function fetchBalance() {
+        try {
+          const response = await fetch('/queryWallet', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+          if (!response.ok) {
+            const error = await response.json();
+            console.error('Erro ao consultar a carteira:', error.message);
+            return;
+          }
+          const data = await response.json();
+          console.log('Saldo atualizado:', data.credits);
+          // Exibe o saldo no HTML
+          document.getElementById('saldo').textContent = data.credits;
+        } catch (error) {
+          console.error('Erro na requisição:', error);
+        }
+      }
+
+      function validarTecla(event) {
+        const tecla = event.key;
+        // Permite números (0-9), backspace, delete e ponto decimal
+        if (/^[0-9.]$/.test(tecla) || tecla === 'Backspace' || tecla === 'Delete') {
+          return true;
+        }
+        // Bloqueia qualquer outra tecla
+        return false;
+      }
+
+      function updateButton() {
+        const userBtn = document.getElementById('login-btn');
+        const username = localStorage.getItem('username');
+        if (username) {
+          userBtn.textContent = username;
+          userBtn.onclick = () => {
+            localStorage.removeItem('username'); // Remove o 'username' do localStorage
+            alert('Você saiu.');
+            updateButton(); // Atualiza o botão
+            console.log(localStorage.getItem('username')); // Confirmar que o item foi removido
+            // Evita recarregar a página e apenas atualiza o estado do botão
+            userBtn.textContent = 'Login'; // Altera o texto do botão para 'Login' novamente
+          };
+        } else {
+          // Caso não tenha usuário logado, defina o texto do botão para "Login"
+          userBtn.textContent = 'Login';
+          userBtn.onclick = () => {
+            // Coloque aqui o código de login ou redirecionamento
+            window.location.href = '/login.html'; // Exemplo de redirecionamento para a página de login
+          };
+        }
+      }
+
+      function atualizarValores(origem) {
+        let reais = document.getElementById("reais").value;
+        let creditos = document.getElementById("creditos").value;
+        const taxa = 2;
+        if (origem === 'reais') {
+          document.getElementById("creditos").value = (reais * taxa);
+        } else {
+          document.getElementById("reais").value = (creditos / taxa);
+        }
+      }
+      // Adicionar evento de clique ao botão "Comprar"
+      document.getElementById('buyBtn').addEventListener('click', async () => {
+        const creditos = document.getElementById('creditos').value;
+        if (!creditos || creditos <= 0) {
+          return alert('Por favor, insira uma quantidade válida de créditos.');
+        }
+        const response = await fetch('/add', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            amount: parseFloat(creditos) // Envia a quantidade de créditos para o servidor
+          })
+        });
+        if (response.ok) {
+          alert('Créditos adicionados com sucesso!');
+          await fetchBalance(); // Atualiza o saldo após a compra
+        } else {
+          const error = await response.json();
+          alert(error.message || 'Erro ao adicionar créditos.');
+        }
+      });
+      // Abrir o popup de transferência
+      document.getElementById('transferBtn').addEventListener('click', () => {
+        document.getElementById('transferPopup').style.display = 'block';
+        document.getElementById('overlay').style.display = 'block';
+      });
+      // Fechar o popup de transferência
+      function closePopup() {
+        document.getElementById('transferPopup').style.display = 'none';
+        document.getElementById('overlay').style.display = 'none';
+      }
+      document.getElementById('transferForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const receiver = document.getElementById('receiver').value;
+        const amount = document.getElementById('amount').value;
+        console.log(receiver, amount);
+        if (!receiver || !amount) {
+          return alert('Preencha todos os campos!');
+        }
+        try {
+          const response = await fetch('/transferCredits', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              receiver,
+              amount
+            })
+          });
+          if (response.ok) {
+            alert('Transferência realizada com sucesso!');
+            await fetchBalance(); // Atualiza o saldo após a transferência
+            closePopup(); // Fecha o popup
+          } else {
+            const error = await response.json();
+            alert(error.message || 'Erro ao realizar a transferência.');
+          }
+        } catch (error) {
+          console.error('Erro na transferência:', error);
+          alert('Erro ao realizar a transferência.');
+        }
+      });
+      // Atualizar o saldo quando a página carregar
+      window.onload = async () => {
+        await updateButton();
+        await fetchBalance();
+      };
+    </script>
+  </body>
+</html>

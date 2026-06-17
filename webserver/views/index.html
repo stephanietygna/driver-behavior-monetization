@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bem-vindo à Rede</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f4f9;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+      }
+
+      .container {
+        text-align: center;
+        padding: 20px;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.2);
+        width: 80%;
+        max-width: 500px;
+      }
+
+      h1 {
+        color: #333;
+        margin-bottom: 20px;
+      }
+
+      p {
+        color: #666;
+        font-size: 16px;
+        line-height: 1.5;
+        margin-bottom: 30px;
+      }
+
+      .btn {
+        display: inline-block;
+        padding: 10px 20px;
+        background-color: #007bff;
+        color: white;
+        text-decoration: none;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: bold;
+        transition: background-color 0.3s ease;
+      }
+
+      .btn:hover {
+        background-color: #0056b3;
+      }
+
+      .user-buttons {
+        position: absolute;
+        top: 10px;
+        right: 20px;
+        display: flex;
+        gap: 10px;
+        /* Espaço entre os botões */
+      }
+
+      .userBtn {
+        padding: 10px 20px;
+        cursor: pointer;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: bold;
+        transition: background-color 0.3s ease;
+      }
+
+      #register-btn {
+        background-color: #007bff;
+        color: white;
+        border: none;
+      }
+
+      #register-btn:hover {
+        background-color: #0056b3;
+      }
+
+      #login-btn {
+        background-color: white;
+        color: black;
+        border: 2px solid black;
+      }
+
+      #login-btn:hover {
+        background-color: #ddd;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="header"></div>
+    <div class="user-buttons">
+      <button onclick="window.location.href='/login.html'" id="login-btn" class="userBtn">Login</button>
+      <button onclick="window.location.href='/register.html'" id="register-btn" class="userBtn">Registrar</button>
+    </div>
+    <div class="container">
+      <h1>Bem-vindo à Rede Blockchain</h1>
+      <p>Esta é a página inicial de nossa rede. Aqui você pode acessar os recursos disponíveis e explorar os chaincodes.</p>
+      <a href="/chaincode" class="btn">Chaincodes</a>
+      <!-- <a href="/carteira" class="btn">Carteira</a> -->
+    </div>
+    <script>
+      fetch('/header.html').then(res => res.text()).then(html => {
+        const headerDiv = document.getElementById('header');
+        headerDiv.innerHTML = html;
+        // Executa scripts do header (pra funcionar o logout e controle)
+        headerDiv.querySelectorAll('script').forEach(oldScript => {
+          const newScript = document.createElement('script');
+          newScript.text = oldScript.textContent;
+          document.body.appendChild(newScript);
+          oldScript.remove();
+        });
+      });
+
+      function updateButton() {
+        const userBtn = document.getElementById('register-btn');
+        const username = localStorage.getItem('username');
+        if (username) {
+          userBtn.textContent = username;
+          userBtn.onclick = () => {
+            localStorage.removeItem('username');
+            alert('Você saiu.');
+            updateButton();
+            location.reload();
+          };
+        } else {
+          userBtn.textContent = 'Registrar';
+          userBtn.onclick = () => {
+            window.location.href = '/register.html';
+          };
+        }
+      }
+      updateButton();
+    </script>
+  </body>
+</html>

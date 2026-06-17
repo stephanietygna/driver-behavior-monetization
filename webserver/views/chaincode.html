@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Execução de Chaincodes</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        background-color: #f4f4f9;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+      }
+
+      .container {
+        background: #fff;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        width: 90%;
+        max-width: 500px;
+      }
+
+      .container h2 {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+
+      .form-group {
+        margin-bottom: 15px;
+      }
+
+      .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+
+      .form-group input,
+      .form-group select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        font-size: 1rem;
+      }
+
+      .button-group {
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .button-group button {
+        padding: 10px 20px;
+        border: none;
+        background-color: #007bff;
+        color: white;
+        border-radius: 8px;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+
+      .button-group button:hover {
+        background-color: #0056b3;
+      }
+
+      .history-box {
+        margin-top: 20px;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        background: #f9f9f9;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      .history-box p {
+        margin: 0;
+        font-size: 0.9rem;
+        color: #333;
+      }
+
+      .loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.5);
+        backdrop-filter: blur(5px);
+        -webkit-backdrop-filter: blur(5px);
+        /* suporte Safari */
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+      }
+
+      .loading-box {
+        background: white;
+        border-radius: 10px;
+        border: 1px solid #ccc;
+        padding: 30px 40px;
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+        text-align: center;
+        min-width: 220px;
+      }
+
+      .spinner {
+        margin: 0 auto 20px auto;
+        width: 40px;
+        height: 40px;
+        border: 5px solid #ccc;
+        border-top-color: #007bff;
+        /* cor azul */
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      /* Animação giratória */
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      #monetizaExtras {
+        margin-top: 15px;
+        padding: 15px;
+        border: 1px solid #ccc;
+        border-radius: 10px;
+        background-color: #f9f9f9;
+        transition: all 0.3s ease;
+      }
+
+      #monetizaExtras .form-group {
+        margin-bottom: 12px;
+      }
+
+      #monetizaExtras .form-group label {
+        font-weight: bold;
+        margin-bottom: 5px;
+        display: block;
+      }
+
+      #monetizaExtras .form-group input,
+      #monetizaExtras .form-group select {
+        width: 96%;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        font-size: 1rem;
+      }
+
+      /* Classe para destaque */
+      .highlight-update {
+        animation: highlightFade 2s ease;
+      }
+
+      @keyframes highlightFade {
+        0% {
+          background-color: #aaffa7;
+        }
+
+        100% {
+          background-color: white;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="header"></div>
+    <div class="container">
+      <h2>Execução de Chaincodes</h2>
+      <div class="form-group">
+        <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+          <div class="loading-box">
+            <div class="spinner"></div>
+            <p>Processando, por favor aguarde...</p>
+          </div>
+        </div>
+        <label for="vehiclePlate">Placa do veículo:</label>
+        <input type="text" id="vehiclePlate" placeholder="Insira a placa do veículo (ex., ABC1234)" style="margin-bottom: 8px;" />
+        <label for="privateKey">Chave privada:</label>
+        <input type="file" id="privateKey" accept=".pem" style="margin-bottom: 8px;">
+        <label for="fileData">Arquivo para Processamento</label>
+        <input type="file" id="fileData" accept=".json, .csv, .xlsx">
+      </div>
+      <div class="form-group">
+        <label for="chaincodeSelect">Selecione Chaincode:</label>
+        <select id="chaincodeSelect">
+          <option value="braketester">Braketester</option>
+          <option value="vehicle">Vehicle</option>
+          <option value="monetiza">Monetiza</option>
+          <option value="sollytch">Sollytch</option>
+        </select>
+      </div>
+      <div id="monetizaExtras" style="display: none; margin-top: 10px;">
+        <label for="linhaInput">Número da Linha:</label>
+        <input type="number" id="linhaInput" min="0" placeholder="Digite a linha">
+        <br>
+        <br>
+        <label for="etanolZeroCheckbox">
+          <input type="checkbox" id="etanolZeroCheckbox"> Usando CSV Etanol Zero? </label>
+      </div>
+      <div class="button-group" style="margin-top: 15px;">
+        <button id="invokeButton">Executar Chaincode</button>
+        <button id="queryButton">Histórico</button>
+      </div>
+      <div class="history-box" id="historyBox">
+        <p>Histórico da transação vai aparecer aqui...</p>
+      </div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script type="module">
+      import {
+        signDigest
+      } from "../resources/sign.js"
+      document.addEventListener("DOMContentLoaded", function() {
+        const chaincodeSelect = document.getElementById("chaincodeSelect");
+        const monetizaFields = document.getElementById("monetizaExtras");
+        const vehiclePlateLabel = document.querySelector('label[for="vehiclePlate"]');
+        const vehiclePlateInput = document.getElementById("vehiclePlate");
+
+        function toggleMonetizaFields() {
+          if (chaincodeSelect.value === "monetiza") {
+            monetizaFields.style.display = "block";
+            vehiclePlateLabel.textContent = "Placa do veículo:";
+            vehiclePlateInput.placeholder = "Insira a placa do veículo (ex: ABC1234)";
+          } else if (chaincodeSelect.value === "sollytch") {
+            monetizaFields.style.display = "none"; // ← CORREÇÃO: Esconde campos do Monetiza
+            vehiclePlateLabel.textContent = "ID do teste:";
+            vehiclePlateInput.placeholder = "Insira o ID do teste (ex: TEST-0001)";
+          } else {
+            monetizaFields.style.display = "none"; // ← CORREÇÃO: Esconde campos do Monetiza
+            vehiclePlateLabel.textContent = "Placa do veículo:";
+            vehiclePlateInput.placeholder = "Insira a placa do veículo (ex: ABC1234)";
+          }
+        }
+        // Evento ao mudar de opção
+        chaincodeSelect.addEventListener("change", toggleMonetizaFields);
+        // Forçar verificação ao carregar a página
+        toggleMonetizaFields();
+      });
+      const queryButton = document.getElementById('queryButton');
+      const invokeButton = document.getElementById('invokeButton');
+      const loadingOverlay = document.getElementById('loadingOverlay');
+      fetch('/header.html').then(res => res.text()).then(html => {
+        const headerDiv = document.getElementById('header');
+        headerDiv.innerHTML = html;
+        headerDiv.querySelectorAll('script').forEach(oldScript => {
+          const newScript = document.createElement('script');
+          newScript.text = oldScript.textContent;
+          document.body.appendChild(newScript);
+          oldScript.remove();
+        });
+      });
+      const token = localStorage.getItem('token'); // Recupera o token JWT do armazenamento local para autenticação nas requisições
+      // Função que lê um arquivo (File) e retorna seu conteúdo como texto (Promise)
+      function readFileAsText(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsText(file); // Lê o arquivo como texto
+        });
+      }
+      // Processa o conteúdo CSV em formato texto e extrai colunas específicas retornando objeto com arrays. Processamento
+      // específico para o chaincode "vehicle"
+      function processCSV(csvText) {
+        const data = csvText.trim().split("\n").map(row => row.split(","));
+        data.shift();
+        return {
+          timestamps: data.map(row => row[0]),
+          lats: data.map(row => parseFloat(row[1].replace(/\./g, ''))),
+          lons: data.map(row => parseFloat(row[2].replace(/\./g, ''))),
+          vehicleSpeeds: data.map(row => parseFloat(row[3])),
+          accel_x: data.map(row => parseFloat(row[4].replace(/\./g, ''))),
+          accel_y: data.map(row => parseFloat(row[5].replace(/\./g, ''))),
+          accel_z: data.map(row => parseFloat(row[6].replace(/\./g, '')))
+        };
+      }
+      // Converte base64 para Uint8Array (bytes)
+      function base64ToUint8Array(base64) {
+        const binaryString = atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes;
+      }
+      // Converte Uint8Array para base64
+      function uint8ArrayToBase64(uint8Array) {
+        let binary = '';
+        for (let i = 0; i < uint8Array.length; i++) {
+          binary += String.fromCharCode(uint8Array[i]);
+        }
+        return window.btoa(binary);
+      }
+      // Outra função para converter ArrayBuffer para base64
+      function bufferToBase64(buffer) {
+        return btoa(new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+      }
+      // Captura dados do formulário: placa do veículo, chaincode selecionado, e a chave privada
+      async function getFormBaseData() {
+        const vehiclePlate = document.getElementById('vehiclePlate').value;
+        const chaincode = document.getElementById('chaincodeSelect').value;
+        const fileInput = document.getElementById('privateKey').files[0];
+        if (!vehiclePlate || !fileInput) {
+          alert("Por favor, preencha a placa do veículo e selecione uma chave privada.");
+          throw new Error("Formulário incompleto.");
+        }
+        const privateKeyContent = await readFileAsText(fileInput); // Lê a chave privada em PEM como texto
+        return {
+          vehiclePlate,
+          chaincode,
+          privateKey: privateKeyContent
+        };
+      }
+      // Processa os dados do arquivo enviado: aceita JSON e CSV, converte para objeto javascript
+      async function processReportData(fileData) {
+        const fileName = fileData.name.toLowerCase();
+        let reportData;
+        if (fileName.endsWith(".json")) {
+          const jsonText = await fileData.text();
+          try {
+            reportData = JSON.parse(jsonText); // Converte JSON para objeto
+          } catch (error) {
+            alert('JSON inválido.');
+            throw error;
+          }
+        } else if (fileName.endsWith(".csv")) {
+          const csvText = await fileData.text();
+          reportData = processCSV(csvText); // Processa CSV para objeto
+        } else if (fileName.endsWith('.xlsx')) {
+          const arrayBuffer = await fileData.arrayBuffer();
+          reportData = arrayBuffer;
+        } else {
+          alert("Formato de arquivo não suportado. Envie um arquivo JSON ou CSV.");
+          throw new Error("Formato de arquivo não suportado.");
+        }
+        return reportData;
+      }
+      // Prepara o objeto de dados para a transação, combinando dados do formulário e dados do arquivo
+      async function prepareTransactionData(customArgs = {}) {
+        const baseData = await getFormBaseData();
+        const fileData = document.getElementById('fileData').files[0];
+        let reportData;
+        if (fileData) {
+          if (baseData.chaincode === 'monetiza') {
+            reportData = await fileData.text();
+          } else if (baseData.chaincode === 'sollytch') {
+            const arrayBuffer = await fileData.arrayBuffer();
+            const base64Data = bufferToBase64(arrayBuffer);
+            reportData = base64Data;
+          } else {
+            reportData = await processReportData(fileData);
+          }
+        }
+        return {
+          ...baseData,
+          ...(reportData && {
+            reportData
+          }), // Inclui reportData se existir
+          ...customArgs // Inclui quaisquer argumentos customizados extras
+        };
+      }
+      // Função principal para executar uma transação contra o backend via fetch para um endpoint REST
+      async function executeTransaction(endpoint, fcn, ...args) {
+        try {
+          let response, digestBase64, signature, result;
+          // Prepara dados do formulário, arquivo e argumentos customizados
+          const data = await prepareTransactionData({
+            customArgs: args
+          });
+          // Monta o corpo da requisição com função (fcn) e argumentos para o chaincode
+          const requestData = {
+            ...data,
+            fcn,
+            args
+          };
+          // 1ª etapa: envia a proposta da transação para o endpoint (/invoke ou /query)
+          response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}` // Autenticação com token JWT
+            },
+            body: JSON.stringify(requestData)
+          });
+          result = await response.json();
+          if (!response.ok) {
+            if (response.status === 401 && result.message === 'Token inválido ou expirado') {
+              throw new Error("Erro de login: token inválido ou expirado.");
+            } else {
+              throw new Error(`Erro: ${result.message}`);
+            }
+          }
+          // Extrai o digest da proposta que precisa ser assinada (em base64)
+          digestBase64 = result.proposalDigest;
+          let digestBuffer = base64ToUint8Array(digestBase64);
+          // 2ª etapa: criar transação assinada
+          try {
+            signature = await signDigest(digestBuffer, data.privateKey); // Assina o digest com a chave privada
+            const proposalSig = Array.from(signature); // Converte Uint8Array para array simples
+            response = await fetch("/createTransaction", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                proposalSig
+              }) // Envia a proposta assinada
+            });
+          } catch (error) {
+            console.error('erro na criação da transação', error);
+            alert("Erro na transação");
+            return;
+          }
+          result = await response.json();
+          if (result.message === "erro criando transacao") {
+            console.error('erro na transação');
+            return;
+          }
+          // Extrai digest da transação para próxima assinatura
+          digestBase64 = result.transactionDigest;
+          digestBuffer = base64ToUint8Array(digestBase64);
+          // 3ª etapa: criar commit da transação
+          try {
+            signature = await signDigest(digestBuffer, data.privateKey);
+            const transactionSig = Array.from(signature);
+            response = await fetch("/createCommit", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                transactionSig
+              }) // Envia a transação assinada para commit
+            });
+          } catch (error) {
+            console.error('erro na criação do commit', error);
+            alert("Erro no commit");
+            return;
+          }
+          result = await response.json();
+          // Extrai digest do commit para última assinatura
+          digestBase64 = result.commitDigest;
+          digestBuffer = base64ToUint8Array(digestBase64);
+          // 4ª etapa: finaliza a transação enviando assinatura final
+          try {
+            signature = await signDigest(digestBuffer, data.privateKey);
+            const commitSig = Array.from(signature);
+            response = await fetch("/finalize", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                commitSig
+              }) // Envia assinatura do commit para finalizar transação
+            });
+          } catch (error) {
+            console.error('erro na finalização', error);
+            alert("Erro na finalização");
+            return;
+          }
+          result = await response.json();
+          // Caso sucesso, notifica o usuário
+          if (result.ok) {
+            alert("Chaincode submetido com sucesso!");
+          }
+          // Atualiza o histórico na interface, exibindo resposta formatada, apenas se foi um query
+          if (result && result.data && endpoint === '/query') {
+            const historyBox = document.getElementById('historyBox');
+            historyBox.innerHTML = "";
+            // console.log(result, result.data)
+            if (Array.isArray(result.data) && result.data !== null) {
+              result.data.forEach(entry => {
+                const p = document.createElement('p');
+                p.textContent = JSON.stringify(entry, null, 2);
+                historyBox.appendChild(p);
+              });
+            } else if (typeof result.data === 'object') {
+              historyBox.innerHTML = `
+							
+											
+											<pre>${JSON.stringify(result.data, null, 2)}</pre>`;
+            } else {
+              historyBox.innerHTML = `
+							
+											
+											<p>${result.data}</p>`;
+            }
+            historyBox.classList.remove('highlight-update');
+            void historyBox.offsetWidth;
+            historyBox.classList.add('highlight-update');
+          }
+        } catch (error) {
+          console.error("Erro na execução:", error);
+          alert(error.message || "Erro ao executar transação.");
+        }
+      }
+      // Listener para o botão 'invoke' — executa diferentes ações conforme o chaincode selecionado
+      document.getElementById('invokeButton').addEventListener('click', async () => {
+        try {
+          const fileDataInput = document.getElementById('fileData').files[0];
+          queryButton.disabled = true;
+          invokeButton.disabled = true;
+          loadingOverlay.style.display = 'flex';
+          await new Promise(resolve => setTimeout(resolve, 0)); // Garante atualização visual
+          const baseData = await getFormBaseData();
+          if (baseData.chaincode === 'braketester') {
+            // Se chaincode é 'braketester', processa arquivo e envia a requisição para a função RegisterMeter
+            const reportData = await processReportData(fileDataInput);
+            await executeTransaction('/invoke', 'RegisterMeter', baseData.vehiclePlate, reportData);
+          } else if (baseData.chaincode === 'vehicle') {
+            // Para o chaincode 'vehicle', o processo é mais complexo, com múltiplas transações
+            const reportData = await processReportData(fileDataInput);
+            const {
+              timestamps,
+              lats,
+              lons,
+              vehicleSpeeds,
+              accel_x,
+              accel_y,
+              accel_z
+            } = reportData;
+            try {
+              // Tenta criar a carteira do veículo antes de armazenar dados
+              await executeTransaction('/invoke', 'CreateVehicleWallet', baseData.vehiclePlate);
+            } catch (e) {
+              console.error("Carteira já criada: ", e);
+              alert(`Carteira já criada para o veículo ${baseData.vehiclePlate}`);
+            }
+            // Loop para enviar dados linha a linha
+            for (let i = 0; i < timestamps.length; i++) {
+              try {
+                console.log(`Processing line ${i + 1} of ${timestamps.length}`);
+                const unixTimestamp = new Date(timestamps[i]).getTime().toString();
+                const flag = i % 10 === 0 ? "true" : "false";
+                await executeTransaction("/invoke", "StoreVehicleData", baseData.vehiclePlate, unixTimestamp, lats[i], lons[i], vehicleSpeeds[i], accel_x[i], accel_y[i], accel_z[i], flag);
+                // Após armazenar dados, analisa comportamento do motorista
+                await executeTransaction("/invoke", "AnalyzeDriverBehavior", baseData.vehiclePlate);
+              } catch (e) {
+                console.error("Erro executando chaincode vehicle: ", e);
+                break; // Sai do loop em caso de erro
+              }
+            }
+          } else if (baseData.chaincode === "monetiza") {
+            const fileDataText = await fileDataInput.text()
+            const linha = document.getElementById('linhaInput').value;
+            const eZero = document.getElementById('etanolZeroCheckbox').checked;
+            await executeTransaction("/invoke", "CalculateMonetization", fileDataText, linha, eZero)
+            await executeTransaction('/query', baseData.vehiclePlate);
+          } else if (baseData.chaincode === "sollytch") {
+            const reportData = await processReportData(fileDataInput);
+            const workbook = XLSX.read(reportData, {
+              type: 'array',
+              cellDates: true,
+              raw: false
+            });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(sheet, {
+              header: 1,
+              raw: false
+            });
+            for (let i = 1; i < rows.length; i++) {
+              const linha = rows[i];
+              if (!linha || linha.length === 0) continue;
+              try {
+                // Prepara os dados da linha
+                console.log(linha[1])
+                const recordFull = {
+                  test_id: linha[0],
+                  timestamp: String(linha[1]),
+                  lat: parseFloat(linha[2]),
+                  lon: parseFloat(linha[3]),
+                  geo_hash: linha[4],
+                  operator_id: linha[5],
+                  operator_did: linha[6],
+                  matrix_type: linha[7],
+                  cassette_lot: linha[8],
+                  reagent_lot: linha[9],
+                  expiry_days_left: parseInt(linha[10]),
+                  distance_mm: parseFloat(linha[11]),
+                  time_to_migrate_s: parseFloat(linha[12]),
+                  control_line_ok: linha[13] === "TRUE",
+                  sample_volume_uL: parseFloat(linha[14]),
+                  sample_pH: parseFloat(linha[15]),
+                  sample_turbidity_NTU: parseFloat(linha[16]),
+                  sample_temp_C: parseFloat(linha[17]),
+                  ambient_T_C: parseFloat(linha[18]),
+                  ambient_RH_pct: parseFloat(linha[19]),
+                  lighting_lux: parseFloat(linha[20]),
+                  tilt_deg: parseFloat(linha[21]),
+                  preincubation_time_s: parseInt(linha[22]),
+                  time_since_sampling_min: parseFloat(linha[23]),
+                  storage_condition: linha[24],
+                  prefilter_used: linha[25] === "TRUE",
+                  image_taken: linha[26] === "TRUE",
+                  image_blur_score: linha[27] ? parseFloat(linha[27]) : 0,
+                  device_fw_version: linha[28],
+                  produto_id: linha[29],
+                  kit_calibration_id: linha[30],
+                  controle_interno_result: linha[31],
+                  cadeia_frio_status: linha[32] === "TRUE",
+                  tempo_transporte_horas: parseFloat(linha[33]),
+                  condicao_transporte: linha[34],
+                  estimated_concentration_ppb: parseFloat(linha[35]),
+                  incerteza_estimativa_ppb: parseFloat(linha[36]),
+                  acao_recomendada: linha[37],
+                  result_class: linha[38],
+                  qc_status: linha[39],
+                };
+                const {
+                  test_id,
+                  ...record
+                } = recordFull;
+                const jsonStr = JSON.stringify(record);
+                // Executa a transação para esta linha específica
+                await executeTransaction("/invoke", 'StoreTest', test_id, jsonStr);
+                // Pequena pausa para não sobrecarregar
+                await new Promise(resolve => setTimeout(resolve, 100));
+              } catch (error) {
+                console.error("Erro: ", error);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('erro: ', error)
+        } finally {
+          // Reabilita botões e esconde overlay após execução
+          queryButton.disabled = false;
+          invokeButton.disabled = false;
+          loadingOverlay.style.display = 'none';
+        }
+      });
+      // Listener para o botão 'query' — consulta informações do ledger da rede
+      document.getElementById('queryButton').addEventListener('click', async () => {
+        try {
+          queryButton.disabled = true;
+          invokeButton.disabled = true;
+          loadingOverlay.style.display = 'flex';
+          await new Promise(resolve => setTimeout(resolve, 0));
+          const baseData = await getFormBaseData();
+          const historyBox = document.getElementById('historyBox');
+          historyBox.innerHTML = " < p > Histórico da transação vai aparecer aqui... < /p>";
+          // Executa consulta via endpoint '/query', função 'QueryVehicleWallet' com placa do veículo
+          await executeTransaction('/query', baseData.vehiclePlate);
+        } catch (error) {
+          console.error("Erro: ", error);
+        } finally {
+          queryButton.disabled = false;
+          invokeButton.disabled = false;
+          loadingOverlay.style.display = 'none';
+        }
+      });
+    </script>
+  </body>
+</html>
