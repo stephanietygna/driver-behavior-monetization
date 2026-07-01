@@ -117,7 +117,7 @@ func (s *SmartContract) AnalyzeDriverBehavior(ctx contractapi.TransactionContext
 		// timestampSlice = append(timestampSlice, historicalData.TimeStamp)
 		directionSlice = append(directionSlice, historicalData.Direction)
 
-		// converter aceleração para float
+		// converter aceleração para float 
 		// accelX, err := strconv.ParseFloat(historicalData.AccelX, 64)
 		// if err != nil {
 		// 	return fmt.Errorf("falha ao converter aceleração X histórica: %s", err)
@@ -426,48 +426,48 @@ func DetectAnomalousAcceleration(speedSlice []string) (int, error) {
 // então, comparar segundo[9] com segundo [8] OU com segundo[9] com segundo[7]
 // ex: comparar o sinal atual com o de 2 segundos antes
 
-func DetectZigZag(accelXSlice []string, accelYSlice []string, accelZSlice []string) int {
-	// Cria a chave composta para a carteira
-	// Variáveis para comparação e contagem de zigue-zague
-	var zigzagCount int
-	credits := 10      // Define o valor da penalização ou recompensa
-	detection := false // Define se houve zigue-zague
+// func DetectZigZag(accelXSlice []string, accelYSlice []string, accelZSlice []string) int {
+// 	// Cria a chave composta para a carteira
+// 	// Variáveis para comparação e contagem de zigue-zague
+// 	var zigzagCount int
+// 	credits := 10      // Define o valor da penalização ou recompensa
+// 	detection := false // Define se houve zigue-zague
 
-	// ele vai ler de tras para frente (do mais antigo até o mais recente)
-	for i := len(accelXSlice) - 1; i > 0; i-- {
-		// Recupera últimos valores de aceleração para detectar zigue-zague
+// 	// ele vai ler de tras para frente (do mais antigo até o mais recente)
+// 	for i := len(accelXSlice) - 1; i > 0; i-- {
+// 		// Recupera últimos valores de aceleração para detectar zigue-zague
 
-		// parametros removidos
-		// currentAccelX := accelXSlice[i]
-		// nextAccelX := accelXSlice[i-1]
-		// nextAccelY := accelYSlice[i-1]
+// 		// parametros removidos
+// 		// currentAccelX := accelXSlice[i]
+// 		// nextAccelX := accelXSlice[i-1]
+// 		// nextAccelY := accelYSlice[i-1]
 
-		currentAccelY, err := strconv.ParseFloat(accelYSlice[i], 64)
-		if err != nil {
-			log.Printf("Erro ao converter aceleração Y: %v", err)
-			continue
-		}
-		currentAccelZ := accelZSlice[i]
-		nextAccelZ := accelZSlice[i-1]
+// 		currentAccelY, err := strconv.ParseFloat(accelYSlice[i], 64)
+// 		if err != nil {
+// 			log.Printf("Erro ao converter aceleração Y: %v", err)
+// 			continue
+// 		}
+// 		currentAccelZ := accelZSlice[i]
+// 		nextAccelZ := accelZSlice[i-1]
 
-		// Compara os valores para detectar zigue-zague
-		if currentAccelY >= 0.0080 && currentAccelZ != nextAccelZ {
-			zigzagCount++
-		}
-	}
+// 		// Compara os valores para detectar zigue-zague
+// 		if currentAccelY >= 0.0080 && currentAccelZ != nextAccelZ {
+// 			zigzagCount++
+// 		}
+// 	}
 
-	// Se o número de zigue-zagues for maior ou igual a 3, aplica penalização
-	if zigzagCount >= 3 {
-		// Aplique penalização na carteira do veículo
-		credits = -40
-		detection = true
-	}
+// 	// Se o número de zigue-zagues for maior ou igual a 3, aplica penalização
+// 	if zigzagCount >= 3 {
+// 		// Aplique penalização na carteira do veículo
+// 		credits = -40
+// 		detection = true
+// 	}
 
-	// Caso contrário, o veículo está dirigindo de forma aceitável
-	log.Printf("Zigue-zague: %v", detection)
+// 	// Caso contrário, o veículo está dirigindo de forma aceitável
+// 	log.Printf("Zigue-zague: %v", detection)
 
-	return credits
-}
+// 	return credits
+// }
 
 // Função para detectar mudanças bruscas de direção
 func DetectSharpTurn(speed string, direction string) int {
