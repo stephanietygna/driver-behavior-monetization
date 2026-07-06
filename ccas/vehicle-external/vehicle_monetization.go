@@ -58,8 +58,8 @@ type UserInfractions struct {
 	RestlessDrivingTimestamps       []string `json:"restlessDrivingTimestamps"`
 	SharpTurnOccurences             int      `json:"sharpTurnOccurences"`
 	SharpTurnTimestamps             []string `json:"sharpTurnTimestamps"`
-	ZigZagOccurences                int      `json:"zigZagOccurences"`
-	ZigZagTimestamps                []string `json:"zigZagTimestamps"`
+	// ZigZagOccurences                int      `json:"zigZagOccurences"`
+	// ZigZagTimestamps                []string `json:"zigZagTimestamps"`
 }
 
 // Struct usado exclusivamente para o funcionamento da função DetectRestlessDriving
@@ -299,18 +299,18 @@ func (s *SmartContract) AnalyzeDriverBehavior(ctx contractapi.TransactionContext
 			}
 		}
 
-		// Detecção de zigue-zague
-		credZigZag, err, flagZigZag := DetectZigZag(accelXSlice, accelYSlice, accelZSlice, userInfractions.ZigZagOccurences)
-		if flagZigZag {
-			userInfractions.ZigZagOccurences++
-			userInfractions.ZigZagTimestamps = append(userInfractions.ZigZagTimestamps, timestampSlice[len(timestampSlice)-1])
-		}
-		if err != nil {
-			return fmt.Errorf("erro ao detectar condução em zigue-zague: %s", err)
-		}
-		saldo += credZigZag
+	// 	// Detecção de zigue-zague
+	// 	credZigZag, err, flagZigZag := DetectZigZag(accelXSlice, accelYSlice, accelZSlice, userInfractions.ZigZagOccurences)
+	// 	if flagZigZag {
+	// 		userInfractions.ZigZagOccurences++
+	// 		userInfractions.ZigZagTimestamps = append(userInfractions.ZigZagTimestamps, timestampSlice[len(timestampSlice)-1])
+	// 	}
+	// 	if err != nil {
+	// 		return fmt.Errorf("erro ao detectar condução em zigue-zague: %s", err)
+	// 	}
+	// 	saldo += credZigZag
 
-	}
+	// }
 
 	// Detecção de curvas bruscas
 	credSharpTurn, err, flagSharpTurn := DetectSharpTurn(speedSlice[0], directionSlice[0], userInfractions.SharpTurnOccurences)
@@ -356,7 +356,7 @@ func (s *SmartContract) AnalyzeDriverBehavior(ctx contractapi.TransactionContext
 	// if err != nil {
 	// 	return fmt.Errorf("falha ao converter timestamp atual: %s", err)
 	// }
-	userInfractions.CleanOldInfractions(timestampSlice[len(timestampSlice)-1])
+	// userInfractions.CleanOldInfractions(timestampSlice[len(timestampSlice)-1])
 
 	// Atualizar histórico de infrações do usuário
 	userInfractionsJSON, err := json.Marshal(userInfractions)
@@ -777,11 +777,7 @@ func (u *UserInfractions) CleanOldInfractions(currentTime string) error {
 func DetectAnomalousAcceleration(speedSlice []string, numPreviousAnomalousAcceleration int) (int, error, bool) {
 	detection := false
 	credits, _ := BonusAnomalousAcceleration(10, numPreviousAnomalousAcceleration)
-
-	// calcula o delta de velocidade e tempo entre o tempo final - o de [5 segundos atrás]
-	// deltaSpeed := math.Abs(speedSlice[i] - speedSlice[i-1])
-	// deltaTime := timestampSlice[i] - timestampSlice[i-1]
-
+	
 	tamanho := len(speedSlice)
 	valorfinal, err := strconv.ParseFloat(speedSlice[tamanho-1], 32)
 	if err != nil {
@@ -928,20 +924,20 @@ func DetectSharpTurn(speed string, direction string, numPreviousSharpTurn int) (
 	return credits, nil, detection
 }
 
-// Função para detectar comportamento de zigue-zague
-func DetectZigZag(accelXSlice []string, accelYSlice []string, accelZSlice []string, numPreviousZigZag int) (int, error, bool) {
+// // Função para detectar comportamento de zigue-zague
+// func DetectZigZag(accelXSlice []string, accelYSlice []string, accelZSlice []string, numPreviousZigZag int) (int, error, bool) {
 
-	// pegar cerca de 10 segundos de linhas
-	// então, comparar segundo[9] com segundo [8] OU com segundo[9] com segundo[7]
-	// ex: comparar o sinal atual com o de 2 segundos antes
+// 	// pegar cerca de 10 segundos de linhas
+// 	// então, comparar segundo[9] com segundo [8] OU com segundo[9] com segundo[7]
+// 	// ex: comparar o sinal atual com o de 2 segundos antes
 
-	var zigzagCount int
-	credits, _ := BonusZigZag(10, numPreviousZigZag)
-	detection := false
+// 	var zigzagCount int
+// 	credits, _ := BonusZigZag(10, numPreviousZigZag)
+// 	detection := false
 
-	// ele vai ler de tras para frente (do mais antigo até o mais recente)
-	for i := len(accelXSlice) - 1; i > 0; i-- {
-		// Recupera últimos valores de aceleração para detectar zigue-zague
+// 	// ele vai ler de tras para frente (do mais antigo até o mais recente)
+// 	for i := len(accelXSlice) - 1; i > 0; i-- {
+// 		// Recupera últimos valores de aceleração para detectar zigue-zague
 
 		// parametros removidos
 		// currentAccelX := accelXSlice[i]
@@ -956,27 +952,27 @@ func DetectZigZag(accelXSlice []string, accelYSlice []string, accelZSlice []stri
 		currentAccelZ := accelZSlice[i]
 		nextAccelZ := accelZSlice[i-1]
 
-		// Compara os valores para detectar zigue-zague
-		if currentAccelY >= 0.0080 && currentAccelZ != nextAccelZ {
-			zigzagCount++
-		}
-	}
+// 		// Compara os valores para detectar zigue-zague
+// 		if currentAccelY >= 0.0080 && currentAccelZ != nextAccelZ {
+// 			zigzagCount++
+// 		}
+// 	}
 
-	// Se o número de zigue-zagues for maior ou igual a 3, aplica penalização
-	if zigzagCount >= 3 {
-		// Aplique penalização na carteira do veículo
-		penalty, err := PenaltyZigZag(40, numPreviousZigZag)
-		if err != nil {
-			fmt.Println("Erro ao aplicar pendalide:", err)
-		}
-		credits = -penalty
-		detection = true
-	}
+// 	// Se o número de zigue-zagues for maior ou igual a 3, aplica penalização
+// 	if zigzagCount >= 3 {
+// 		// Aplique penalização na carteira do veículo
+// 		penalty, err := PenaltyZigZag(40, numPreviousZigZag)
+// 		if err != nil {
+// 			fmt.Println("Erro ao aplicar pendalide:", err)
+// 		}
+// 		credits = -penalty
+// 		detection = true
+// 	}
 
-	// Caso contrário, o veículo está dirigindo de forma aceitável
-	log.Printf("Zigue-zague: %v", detection)
-	return credits, nil, detection
-}
+// 	// Caso contrário, o veículo está dirigindo de forma aceitável
+// 	log.Printf("Zigue-zague: %v", detection)
+// 	return credits, nil, detection
+// }
 
 func CalculateBearing(lat1, lon1, lat2, lon2 float64) float64 {
 	// CalculateBearing calcula a direção entre dois pontos geográficos
