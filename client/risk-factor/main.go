@@ -35,6 +35,23 @@ type Reading struct {
 	SpeedKmh  float64   `json:"vehicleSpeed"`
 }
 
+// Assessment contém os resultados devolvidos pelo contrato após o cálculo.
+// Estes campos já foram calculados e registrados no ledger pelo chaincode.
+type Assessment struct {
+	TripID              string  `json:"tripId"`
+	ReadingCount        int     `json:"readingCount"`
+	AnomalousAccelCount int     `json:"anomalousAccelCount"`
+	SharpTurnCount      int     `json:"sharpTurnCount"`
+	AccelerationMetric  float64 `json:"accelerationMetric"`
+	TurnMetric          float64 `json:"turnMetric"`
+	Fatigue             struct {
+		Base   float64 `json:"base"`
+		Excess float64 `json:"excess"`
+	} `json:"fatigue"`
+	ScoreWithoutExcess float64 `json:"scoreWithoutExcess"`
+	RiskFactor         float64 `json:"riskFactor"`
+}
+
 func main() {
 	inputPath := flag.String("input", "../../data/obd_clean.csv", "caminho do CSV OBD")
 	routeID := flag.String("route", "obd-15-spin-trajeto-t1", "valor de id_route a processar")
@@ -63,7 +80,8 @@ func main() {
 
 	fmt.Printf("\n%d leituras prontas para o trajeto %q.\n", len(readings), *tripID)
 	fmt.Printf("Enviando uma única avaliação do trajeto à blockchain...\n\n")
-	invoke(*configPath, *tripID, compressed)
+	assessment := invoke(*configPath, *tripID, compressed)
+	printAssessment(assessment)
 }
 
 // readCSV converte apenas os campos necessários para as métricas do contrato.
@@ -118,7 +136,7 @@ func readCSV(path, routeID string, verbose bool) []Reading {
 	return readings
 }
 
-func invoke(configPath, tripID, compressedReadings string) {
+func invoke(configPath, tripID, compressedReadings string) Assessment {
 	configPath, err := filepath.Abs(configPath)
 	if err != nil {
 		fatal("não foi possível localizar o arquivo de configuração: %v", err)
@@ -135,11 +153,74 @@ func invoke(configPath, tripID, compressedReadings string) {
 		"--args="+tripID,
 		"--args="+compressedReadings,
 	)
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
-	if err := command.Run(); err != nil {
-		fatal("a transação não foi concluída: %v", err)
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	output, err := command.Output()
+	if err != nil {
+		fatal("a transação não foi concluída: %v\n%s", err, stderr.String())
 	}
+
+	jsonOutput, err := firstJSONObject(output)
+	if err != nil {
+		fatal("a blockchain respondeu, mas o resultado não pôde ser lido: %v\n%s", err, output)
+	}
+	var assessment Assessment
+	if err := json.Unmarshal(jsonOutput, &assessment); err != nil {
+		fatal("resultado inválido recebido da blockchain: %v", err)
+	}
+	return assessment
+}
+
+// firstJSONObject isola o JSON do resultado, mesmo que o kubectl escreva
+// mensagens informativas depois da transação.
+func firstJSONObject(output []byte) ([]byte, error) {
+	start := bytes.IndexByte(output, '{')
+	if start == -1 {
+		return nil, fmt.Errorf("nenhum JSON encontrado")
+	}
+	depth := 0
+	for index := start; index < len(output); index++ {
+		switch output[index] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return output[start : index+1], nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("JSON incompleto")
+}
+
+// printAssessment organiza o retorno técnico do contrato em um resumo de fácil
+// leitura para a análise do experimento.
+func printAssessment(assessment Assessment) {
+	fmt.Println("\n========================================")
+	fmt.Println("        RESULTADO DO TRAJETO")
+	fmt.Println("========================================")
+	fmt.Printf("Trajeto: %s\n", assessment.TripID)
+	fmt.Printf("Leituras analisadas: %d\n", assessment.ReadingCount)
+
+	fmt.Println("\n1. ACELERAÇÕES ANÔMALAS")
+	fmt.Printf("   Ocorrências: %d\n", assessment.AnomalousAccelCount)
+	fmt.Printf("   Métrica normalizada (A_i): %.4f\n", assessment.AccelerationMetric)
+
+	fmt.Println("\n2. CURVAS BRUSCAS")
+	fmt.Printf("   Ocorrências: %d\n", assessment.SharpTurnCount)
+	fmt.Printf("   Métrica normalizada (D_i): %.4f\n", assessment.TurnMetric)
+
+	fmt.Println("\n3. FADIGA")
+	fmt.Printf("   Indicador-base (B_i): %.4f\n", assessment.Fatigue.Base)
+	fmt.Printf("   Excesso de fadiga (E_i): %.4f (%.2f%%)\n", assessment.Fatigue.Excess, assessment.Fatigue.Excess*100)
+	fmt.Println("   B_i = 1 indica que houve período contínuo acima do limite de fadiga.")
+
+	fmt.Println("\n4. COMBINAÇÃO DAS MÉTRICAS")
+	fmt.Printf("   Score sem excesso: %.4f\n", assessment.ScoreWithoutExcess)
+
+	fmt.Println("\n5. FATOR DE RISCO FINAL")
+	fmt.Printf("   R_i: %.4f (%.2f%%)\n", assessment.RiskFactor, assessment.RiskFactor*100)
+	fmt.Println("========================================")
 }
 
 func gzipBase64(data []byte) (string, error) {
