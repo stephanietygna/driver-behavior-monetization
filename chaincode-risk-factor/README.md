@@ -3,6 +3,12 @@
 Este chaincode recebe leituras de telemetria em JSON, aplica as tres metricas
 comportamentais e calcula o fator de risco normalizado `R_i`.
 
+Os pesos da calibração são derivados das porcentagens relativas de acidentes
+das três funções consideradas no modelo: aceleração/desaceleração (16,12%),
+curva acentuada (1,96%) e cansaço do condutor (61,77%). Como essas três
+funções representam 79,85% do total da tabela de origem, elas são normalizadas
+para somar 1 antes de compor a equação.
+
 ## Transacoes
 
 - `EvaluateTripRisk(readingsJSON)`: calcula o resultado sem gravar no ledger.

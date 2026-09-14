@@ -89,9 +89,13 @@ func defaultCalibration() Calibration {
 		FatigueThresholdMinutes: 80,
 		StoppedSpeedThreshold:   3.0,
 		MinValidPauseMinutes:    5,
-		WeightAnomalousAccel:    0.2025,
-		WeightSharpTurn:         0.0253,
-		WeightFatigue:           0.7722,
+		// Pesos normalizados das porcentagens relativas de acidentes das três
+		// funções do modelo: 16,12% (aceleração), 1,96% (curva) e 61,77%
+		// (cansaço). A soma original é 79,85%; após normalização, os pesos
+		// abaixo somam exatamente 1 e podem compor o score.
+		WeightAnomalousAccel: 0.20187852222918,
+		WeightSharpTurn:      0.0245460237946149,
+		WeightFatigue:        0.773575453976205,
 	}
 }
 
