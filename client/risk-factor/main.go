@@ -52,7 +52,10 @@ type Assessment struct {
 		ExcessMinutes            float64 `json:"excessMinutes"`
 	} `json:"fatigue"`
 	Calibration struct {
-		FatigueThresholdMinutes int64 `json:"fatigueThresholdMinutes"`
+		FatigueThresholdMinutes int64   `json:"fatigueThresholdMinutes"`
+		WeightAnomalousAccel    float64 `json:"weightAnomalousAccel"`
+		WeightSharpTurn         float64 `json:"weightSharpTurn"`
+		WeightFatigue           float64 `json:"weightFatigue"`
 	} `json:"calibration"`
 	ScoreWithoutExcess float64 `json:"scoreWithoutExcess"`
 	RiskFactor         float64 `json:"riskFactor"`
@@ -225,11 +228,24 @@ func printAssessment(assessment Assessment) {
 	fmt.Printf("   Métrica de excesso (E_i): %.4f\n", assessment.Fatigue.Excess)
 	fmt.Println("   B_i = 1 indica que houve período contínuo acima do limite de fadiga.")
 
+	accelerationContribution := assessment.Calibration.WeightAnomalousAccel * assessment.AccelerationMetric
+	turnContribution := assessment.Calibration.WeightSharpTurn * assessment.TurnMetric
+	fatigueContribution := assessment.Calibration.WeightFatigue * assessment.Fatigue.Base
+	excessContribution := (1 - assessment.ScoreWithoutExcess) * assessment.Fatigue.Excess
+
 	fmt.Println("\n4. COMBINAÇÃO DAS MÉTRICAS")
+	fmt.Printf("   Aceleração anômala: %.4f  (w_A = %.4f × A_i = %.4f)\n",
+		accelerationContribution, assessment.Calibration.WeightAnomalousAccel, assessment.AccelerationMetric)
+	fmt.Printf("   Curvas bruscas: %.4f      (w_D = %.4f × D_i = %.4f)\n",
+		turnContribution, assessment.Calibration.WeightSharpTurn, assessment.TurnMetric)
+	fmt.Printf("   Fadiga-base: %.4f        (w_T = %.4f × B_i = %.4f)\n",
+		fatigueContribution, assessment.Calibration.WeightFatigue, assessment.Fatigue.Base)
 	fmt.Printf("   Score sem excesso: %.4f\n", assessment.ScoreWithoutExcess)
+	fmt.Printf("   Acréscimo pelo excesso de fadiga: %.4f\n", excessContribution)
 
 	fmt.Println("\n5. FATOR DE RISCO FINAL")
-	fmt.Printf("   R_i: %.4f (%.2f%%)\n", assessment.RiskFactor, assessment.RiskFactor*100)
+	fmt.Printf("   Índice normalizado (R_i): %.4f\n", assessment.RiskFactor)
+	fmt.Println("   Escala: 0 = menor risco relativo; 1 = maior risco relativo do modelo.")
 	fmt.Println("========================================")
 }
 

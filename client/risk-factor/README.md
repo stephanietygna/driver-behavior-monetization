@@ -32,5 +32,6 @@ da leitura. Isso evita criar uma transação por linha e mantém o cálculo de
 
 Ao final, o cliente mostra separadamente o número de acelerações anômalas e
 curvas bruscas. Para fadiga, mostra o tempo de condução, o maior período
-contínuo, o limite, o excesso em minutos e as componentes `B_i` e `E_i`; por
-fim, mostra o score ponderado e o fator de risco final `R_i`.
+contínuo, o limite, o excesso em minutos e as componentes `B_i` e `E_i`. A
+seção final explicita a contribuição ponderada de cada métrica, o acréscimo do
+excesso de fadiga e o índice normalizado final `R_i`.
