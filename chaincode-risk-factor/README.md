@@ -33,7 +33,31 @@ O cliente deve converter o CSV para JSON antes da transacao. Exemplo:
 ]
 ```
 
-## Preparacao local
+## Execução na rede deste repositório (CCAS)
+
+Este projeto usa **Chaincode as a Service**. Por isso, o contrato é compilado
+em uma imagem Docker e o peer se conecta ao processo pela porta `9999`.
+
+1. Na VM Ubuntu, entre na pasta `chaincode-risk-factor` e construa a imagem:
+
+```bash
+docker build -t SEU_USUARIO_DOCKER/risk-factor:1.0 .
+docker push SEU_USUARIO_DOCKER/risk-factor:1.0
+```
+
+2. Ao gerar o pacote CCAS, use `risk-factor` como nome e rótulo. O
+`connection.json` deve apontar para `risk-factor:9999`.
+
+3. Depois de instalar o pacote, calcule o `PACKAGE_ID`. Ele deve ser informado
+como `CHAINCODE_ID` pelo comando `externalchaincode sync`; não o defina
+manualmente antes desse passo.
+
+4. Instale, aprove e faça o commit no canal `demo`, usando o nome
+`risk-factor`, versão `1.0` e sequência `1`. O roteiro existente em
+`../ccas/README.md` mostra esses comandos; basta substituir os nomes da imagem
+e do chaincode.
+
+## Preparação local
 
 ```powershell
 cd chaincode-risk-factor
@@ -41,5 +65,4 @@ go mod tidy
 go test ./...
 ```
 
-Para empacotar e implantar, use o ciclo de vida do chaincode da rede Fabric que
-voce estiver usando. O nome do contrato exposto sera `RiskContract`.
+O nome do contrato exposto será `RiskContract`.

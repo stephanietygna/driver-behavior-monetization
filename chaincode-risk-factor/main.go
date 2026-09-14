@@ -4,9 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
+	"os"
+	"strconv"
 	"time"
 
+	"github.com/hyperledger/fabric-chaincode-go/shim"
 	"github.com/hyperledger/fabric-contract-api-go/contractapi"
 )
 
@@ -58,6 +62,13 @@ type RiskAssessment struct {
 // RiskContract expõe o cálculo de risco como transações Fabric.
 type RiskContract struct {
 	contractapi.Contract
+}
+
+// serverConfig contém os valores que o peer entrega ao contêiner no modo CCAS.
+// O PACKAGE_ID calculado na instalação torna-se o CHAINCODE_ID.
+type serverConfig struct {
+	CCID    string
+	Address string
 }
 
 func defaultCalibration() Calibration {
@@ -359,9 +370,56 @@ func continuousDrivingPeriods(readings []Reading, calibration Calibration) []tim
 func main() {
 	chaincode, err := contractapi.NewChaincode(&RiskContract{})
 	if err != nil {
-		panic(fmt.Errorf("erro ao criar chaincode: %w", err))
+		log.Panicf("erro ao criar chaincode: %v", err)
 	}
-	if err := chaincode.Start(); err != nil {
-		panic(fmt.Errorf("erro ao iniciar chaincode: %w", err))
+
+	// Este servidor substitui chaincode.Start(): em Chaincode as a Service,
+	// o peer Fabric conecta-se ao contêiner usando estas variáveis de ambiente.
+	server := &shim.ChaincodeServer{
+		CCID:     os.Getenv("CHAINCODE_ID"),
+		Address:  os.Getenv("CHAINCODE_SERVER_ADDRESS"),
+		CC:       chaincode,
+		TLSProps: getTLSProperties(),
 	}
+	if server.CCID == "" || server.Address == "" {
+		log.Panic("CHAINCODE_ID e CHAINCODE_SERVER_ADDRESS são obrigatórios")
+	}
+	if err := server.Start(); err != nil {
+		log.Panicf("erro ao iniciar servidor do chaincode: %v", err)
+	}
+}
+
+// getTLSProperties permite habilitar TLS depois, sem modificar o código do
+// contrato. Para a rede local de teste, CHAINCODE_TLS_DISABLED=true é usado.
+func getTLSProperties() shim.TLSProperties {
+	tlsDisabled := getBoolOrDefault(os.Getenv("CHAINCODE_TLS_DISABLED"), true)
+	properties := shim.TLSProperties{Disabled: tlsDisabled}
+	if tlsDisabled {
+		return properties
+	}
+
+	var err error
+	if properties.Key, err = os.ReadFile(os.Getenv("CHAINCODE_TLS_KEY")); err != nil {
+		log.Panicf("erro ao ler chave TLS: %v", err)
+	}
+	if properties.Cert, err = os.ReadFile(os.Getenv("CHAINCODE_TLS_CERT")); err != nil {
+		log.Panicf("erro ao ler certificado TLS: %v", err)
+	}
+	if clientCA := os.Getenv("CHAINCODE_CLIENT_CA_CERT"); clientCA != "" {
+		if properties.ClientCACerts, err = os.ReadFile(clientCA); err != nil {
+			log.Panicf("erro ao ler CA do cliente TLS: %v", err)
+		}
+	}
+	return properties
+}
+
+func getBoolOrDefault(value string, defaultValue bool) bool {
+	if value == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return defaultValue
+	}
+	return parsed
 }
