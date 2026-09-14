@@ -9,6 +9,10 @@ curva acentuada (1,96%) e cansaço do condutor (61,77%). Como essas três
 funções representam 79,85% do total da tabela de origem, elas são normalizadas
 para somar 1 antes de compor a equação.
 
+Uma aceleração ou desaceleração anômala é identificada quando a velocidade
+varia pelo menos `30 km/h` em uma janela de até `10 segundos`. A velocidade
+permanece em km/h em todos os cálculos.
+
 ## Transacoes
 
 - `EvaluateTripRisk(readingsJSON)`: calcula o resultado sem gravar no ledger.
