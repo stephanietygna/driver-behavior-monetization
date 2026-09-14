@@ -42,8 +42,14 @@ type Reading struct {
 }
 
 type FatigueMetrics struct {
-	Base   float64 `json:"base"`
+	// Base vale 1 quando ao menos um período contínuo ultrapassa o limite.
+	Base float64 `json:"base"`
+	// Excess é a parcela do tempo total de condução que excedeu o limite.
 	Excess float64 `json:"excess"`
+	// Os três campos abaixo tornam a métrica auditável em unidades de tempo.
+	TotalDrivingMinutes      float64 `json:"totalDrivingMinutes"`
+	LongestContinuousMinutes float64 `json:"longestContinuousMinutes"`
+	ExcessMinutes            float64 `json:"excessMinutes"`
 }
 
 // RiskAssessment é gravado no ledger após uma transação bem-sucedida.
@@ -360,9 +366,12 @@ func analyzeFatigue(readings []Reading, calibration Calibration) FatigueMetrics 
 	periods := continuousDrivingPeriods(readings, calibration)
 	fatigueLimit := time.Duration(calibration.FatigueThresholdMinutes) * time.Minute
 
-	var totalDuration, totalExcess time.Duration
+	var totalDuration, totalExcess, longestPeriod time.Duration
 	for _, period := range periods {
 		totalDuration += period
+		if period > longestPeriod {
+			longestPeriod = period
+		}
 		if period > fatigueLimit {
 			totalExcess += period - fatigueLimit
 		}
@@ -371,7 +380,12 @@ func analyzeFatigue(readings []Reading, calibration Calibration) FatigueMetrics 
 		return FatigueMetrics{}
 	}
 
-	metrics := FatigueMetrics{Excess: float64(totalExcess) / float64(totalDuration)}
+	metrics := FatigueMetrics{
+		Excess:                   float64(totalExcess) / float64(totalDuration),
+		TotalDrivingMinutes:      totalDuration.Minutes(),
+		LongestContinuousMinutes: longestPeriod.Minutes(),
+		ExcessMinutes:            totalExcess.Minutes(),
+	}
 	if totalExcess > 0 {
 		metrics.Base = 1
 	}

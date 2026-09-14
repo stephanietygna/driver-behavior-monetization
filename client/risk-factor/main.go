@@ -45,9 +45,15 @@ type Assessment struct {
 	AccelerationMetric  float64 `json:"accelerationMetric"`
 	TurnMetric          float64 `json:"turnMetric"`
 	Fatigue             struct {
-		Base   float64 `json:"base"`
-		Excess float64 `json:"excess"`
+		Base                     float64 `json:"base"`
+		Excess                   float64 `json:"excess"`
+		TotalDrivingMinutes      float64 `json:"totalDrivingMinutes"`
+		LongestContinuousMinutes float64 `json:"longestContinuousMinutes"`
+		ExcessMinutes            float64 `json:"excessMinutes"`
 	} `json:"fatigue"`
+	Calibration struct {
+		FatigueThresholdMinutes int64 `json:"fatigueThresholdMinutes"`
+	} `json:"calibration"`
 	ScoreWithoutExcess float64 `json:"scoreWithoutExcess"`
 	RiskFactor         float64 `json:"riskFactor"`
 }
@@ -211,8 +217,12 @@ func printAssessment(assessment Assessment) {
 	fmt.Printf("   Métrica normalizada (D_i): %.4f\n", assessment.TurnMetric)
 
 	fmt.Println("\n3. FADIGA")
+	fmt.Printf("   Tempo total de condução: %s\n", formatMinutes(assessment.Fatigue.TotalDrivingMinutes))
+	fmt.Printf("   Maior período contínuo: %s\n", formatMinutes(assessment.Fatigue.LongestContinuousMinutes))
+	fmt.Printf("   Limite configurado: %d min\n", assessment.Calibration.FatigueThresholdMinutes)
+	fmt.Printf("   Excesso de fadiga: %s\n", formatMinutes(assessment.Fatigue.ExcessMinutes))
 	fmt.Printf("   Indicador-base (B_i): %.4f\n", assessment.Fatigue.Base)
-	fmt.Printf("   Excesso de fadiga (E_i): %.4f (%.2f%%)\n", assessment.Fatigue.Excess, assessment.Fatigue.Excess*100)
+	fmt.Printf("   Métrica de excesso (E_i): %.4f\n", assessment.Fatigue.Excess)
 	fmt.Println("   B_i = 1 indica que houve período contínuo acima do limite de fadiga.")
 
 	fmt.Println("\n4. COMBINAÇÃO DAS MÉTRICAS")
@@ -221,6 +231,11 @@ func printAssessment(assessment Assessment) {
 	fmt.Println("\n5. FATOR DE RISCO FINAL")
 	fmt.Printf("   R_i: %.4f (%.2f%%)\n", assessment.RiskFactor, assessment.RiskFactor*100)
 	fmt.Println("========================================")
+}
+
+func formatMinutes(minutes float64) string {
+	totalSeconds := int64(minutes*60 + 0.5)
+	return fmt.Sprintf("%d min e %02d s", totalSeconds/60, totalSeconds%60)
 }
 
 func gzipBase64(data []byte) (string, error) {

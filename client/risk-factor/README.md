@@ -31,5 +31,6 @@ da leitura. Isso evita criar uma transação por linha e mantém o cálculo de
 `R_i` aplicado ao trajeto inteiro.
 
 Ao final, o cliente mostra separadamente o número de acelerações anômalas e
-curvas bruscas, as componentes de fadiga (`B_i` e `E_i`), o score ponderado e
-o fator de risco final `R_i`.
+curvas bruscas. Para fadiga, mostra o tempo de condução, o maior período
+contínuo, o limite, o excesso em minutos e as componentes `B_i` e `E_i`; por
+fim, mostra o score ponderado e o fator de risco final `R_i`.
