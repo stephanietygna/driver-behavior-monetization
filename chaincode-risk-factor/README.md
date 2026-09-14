@@ -84,3 +84,25 @@ go test ./...
 ```
 
 O nome do contrato exposto será `RiskContract`.
+
+## Trajetos grandes pelo terminal
+
+Para não ultrapassar o limite de argumentos do terminal, compacte o JSON com
+gzip e base64 e invoque `CreateRiskAssessmentCompressed`:
+
+```bash
+COMPACTADO="$(gzip -c /tmp/obd-trajeto.json | base64 -w 0)"
+
+kubectl hlf chaincode invoke \
+  --config=resources/inmetro.yaml \
+  --user=inmetro-admin-default \
+  --peer=inmetro-peer0.default \
+  --channel=demo \
+  --chaincode=risk-factor \
+  --fcn=CreateRiskAssessmentCompressed \
+  --args=obd-15-spin-trajeto-t1 \
+  --args="$COMPACTADO"
+```
+
+Essa opção calcula e armazena exatamente o mesmo resultado da transação
+`CreateRiskAssessment`; a compactação existe apenas no transporte.

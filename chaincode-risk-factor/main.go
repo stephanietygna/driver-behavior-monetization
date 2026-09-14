@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"os"
@@ -108,6 +112,29 @@ func (c *RiskContract) CreateRiskAssessment(
 	tripID string,
 	readingsJSON string,
 ) (*RiskAssessment, error) {
+	return c.createRiskAssessment(ctx, tripID, readingsJSON)
+}
+
+// CreateRiskAssessmentCompressed recebe o mesmo JSON de leituras comprimido
+// com gzip e codificado em base64. É útil para trajetos grandes enviados por
+// linha de comando, pois reduz o tamanho do argumento sem mudar a equação.
+func (c *RiskContract) CreateRiskAssessmentCompressed(
+	ctx contractapi.TransactionContextInterface,
+	tripID string,
+	compressedReadings string,
+) (*RiskAssessment, error) {
+	readingsJSON, err := decompressReadings(compressedReadings)
+	if err != nil {
+		return nil, err
+	}
+	return c.createRiskAssessment(ctx, tripID, readingsJSON)
+}
+
+func (c *RiskContract) createRiskAssessment(
+	ctx contractapi.TransactionContextInterface,
+	tripID string,
+	readingsJSON string,
+) (*RiskAssessment, error) {
 	if tripID == "" {
 		return nil, errors.New("tripID é obrigatório")
 	}
@@ -144,6 +171,27 @@ func (c *RiskContract) CreateRiskAssessment(
 	}
 
 	return assessment, nil
+}
+
+func decompressReadings(compressedReadings string) (string, error) {
+	compressed, err := base64.StdEncoding.DecodeString(compressedReadings)
+	if err != nil {
+		return "", fmt.Errorf("leituras compactadas inválidas: %w", err)
+	}
+
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		return "", fmt.Errorf("não foi possível descompactar leituras: %w", err)
+	}
+	defer reader.Close()
+
+	// Limite defensivo: impede que um pequeno arquivo comprimido gere uma carga
+	// excessiva no container do chaincode.
+	jsonBytes, err := io.ReadAll(io.LimitReader(reader, 10*1024*1024))
+	if err != nil {
+		return "", fmt.Errorf("erro ao ler leituras descompactadas: %w", err)
+	}
+	return string(jsonBytes), nil
 }
 
 // ReadRiskAssessment consulta um resultado já registrado no ledger.
