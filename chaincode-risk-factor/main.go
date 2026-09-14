@@ -21,18 +21,17 @@ import (
 // Calibration reúne os parâmetros fixados pelo protocolo do estudo.
 // As durações usam minutos para facilitar serialização e auditoria.
 type Calibration struct {
-	// Uma ocorrência é uma variação de velocidade de pelo menos 30 km/h
-	// dentro de uma janela de até 10 segundos.
-	AnomalousSpeedChangeThresholdKmh float64 `json:"anomalousSpeedChangeThresholdKmh"`
-	AccelerationWindowSeconds        int64   `json:"accelerationWindowSeconds"`
-	SharpTurnAngleThreshold          float64 `json:"sharpTurnAngleThreshold"`
-	SharpTurnSpeedThreshold          float64 `json:"sharpTurnSpeedThreshold"`
-	FatigueThresholdMinutes          int64   `json:"fatigueThresholdMinutes"`
-	StoppedSpeedThreshold            float64 `json:"stoppedSpeedThreshold"`
-	MinValidPauseMinutes             int64   `json:"minValidPauseMinutes"`
-	WeightAnomalousAccel             float64 `json:"weightAnomalousAccel"`
-	WeightSharpTurn                  float64 `json:"weightSharpTurn"`
-	WeightFatigue                    float64 `json:"weightFatigue"`
+	// 30 km/h em 10 s equivale a 3 km/h/s. A taxa é calculada entre
+	// leituras consecutivas: (velocidade atual - anterior) / tempo em segundos.
+	AnomalousAccelerationThresholdKmhPerSecond float64 `json:"anomalousAccelerationThresholdKmhPerSecond"`
+	SharpTurnAngleThreshold                    float64 `json:"sharpTurnAngleThreshold"`
+	SharpTurnSpeedThreshold                    float64 `json:"sharpTurnSpeedThreshold"`
+	FatigueThresholdMinutes                    int64   `json:"fatigueThresholdMinutes"`
+	StoppedSpeedThreshold                      float64 `json:"stoppedSpeedThreshold"`
+	MinValidPauseMinutes                       int64   `json:"minValidPauseMinutes"`
+	WeightAnomalousAccel                       float64 `json:"weightAnomalousAccel"`
+	WeightSharpTurn                            float64 `json:"weightSharpTurn"`
+	WeightFatigue                              float64 `json:"weightFatigue"`
 }
 
 // Reading representa uma amostra de telemetria enviada pelo cliente.
@@ -86,13 +85,12 @@ type serverConfig struct {
 
 func defaultCalibration() Calibration {
 	return Calibration{
-		AnomalousSpeedChangeThresholdKmh: 30.0,
-		AccelerationWindowSeconds:        10,
-		SharpTurnAngleThreshold:          0.7,
-		SharpTurnSpeedThreshold:          30.0,
-		FatigueThresholdMinutes:          80,
-		StoppedSpeedThreshold:            3.0,
-		MinValidPauseMinutes:             5,
+		AnomalousAccelerationThresholdKmhPerSecond: 3.0,
+		SharpTurnAngleThreshold:                    0.7,
+		SharpTurnSpeedThreshold:                    30.0,
+		FatigueThresholdMinutes:                    80,
+		StoppedSpeedThreshold:                      3.0,
+		MinValidPauseMinutes:                       5,
 		// Pesos normalizados das porcentagens relativas de acidentes das três
 		// funções do modelo: 16,12% (aceleração), 1,96% (curva) e 61,77%
 		// (cansaço). A soma original é 79,85%; após normalização, os pesos
@@ -303,7 +301,7 @@ func validateCalibration(calibration Calibration) error {
 	if calibration.FatigueThresholdMinutes <= 0 || calibration.MinValidPauseMinutes <= 0 {
 		return errors.New("os limiares de duração devem ser positivos")
 	}
-	if calibration.AnomalousSpeedChangeThresholdKmh < 0 || calibration.AccelerationWindowSeconds <= 0 ||
+	if calibration.AnomalousAccelerationThresholdKmhPerSecond < 0 ||
 		calibration.SharpTurnAngleThreshold < 0 ||
 		calibration.SharpTurnSpeedThreshold < 0 || calibration.StoppedSpeedThreshold < 0 {
 		return errors.New("os limiares de velocidade e aceleração não podem ser negativos")
@@ -319,21 +317,10 @@ func validateCalibration(calibration Calibration) error {
 
 func countAnomalousAccelerations(readings []Reading, calibration Calibration) int {
 	count := 0
-	window := time.Duration(calibration.AccelerationWindowSeconds) * time.Second
-	start := 0
-
 	for i := 1; i < len(readings); i++ {
-		// Mantém `start` na leitura mais antiga que ainda está dentro dos
-		// últimos 10 segundos em relação à leitura atual.
-		for start < i && readings[i].Timestamp.Sub(readings[start].Timestamp) > window {
-			start++
-		}
-
-		if start == i {
-			continue
-		}
-		speedChange := math.Abs(readings[i].SpeedKmh - readings[start].SpeedKmh)
-		if speedChange >= calibration.AnomalousSpeedChangeThresholdKmh {
+		deltaSeconds := readings[i].Timestamp.Sub(readings[i-1].Timestamp).Seconds()
+		acceleration := (readings[i].SpeedKmh - readings[i-1].SpeedKmh) / deltaSeconds
+		if math.Abs(acceleration) >= calibration.AnomalousAccelerationThresholdKmhPerSecond {
 			count++
 		}
 	}
