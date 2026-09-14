@@ -8,6 +8,8 @@ COPY go.mod ./
 RUN go mod download
 
 COPY . .
+# Gera/atualiza go.sum no ambiente isolado de compilação antes de construir.
+RUN go mod tidy
 RUN CGO_ENABLED=0 go build -o /risk-factor-chaincode .
 
 FROM alpine:3.20
