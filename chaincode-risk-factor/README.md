@@ -45,8 +45,9 @@ docker build -t SEU_USUARIO_DOCKER/risk-factor:1.0 .
 docker push SEU_USUARIO_DOCKER/risk-factor:1.0
 ```
 
-2. Ao gerar o pacote CCAS, use `risk-factor` como nome e rótulo. O
-`connection.json` deve apontar para `risk-factor:9999`.
+2. Ao gerar o pacote CCAS, use `risk-factor` como nome e rótulo. O comando
+`inmetro ccas` do repositório gera o `connection.json` e a configuração do
+serviço automaticamente; não é necessário editá-los manualmente.
 
 3. Depois de instalar o pacote, calcule o `PACKAGE_ID`. Ele deve ser informado
 como `CHAINCODE_ID` pelo comando `externalchaincode sync`; não o defina
