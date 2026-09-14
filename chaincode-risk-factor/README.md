@@ -33,6 +33,23 @@ O cliente deve converter o CSV para JSON antes da transacao. Exemplo:
 ]
 ```
 
+## Converter o CSV OBD do repositório
+
+O programa cliente `cmd/obd-to-readings` extrai apenas `timestamp`, `lat`,
+`lon` e `vehicle_speed` (km/h) do CSV. Ele não altera o arquivo original e
+gera o JSON que será enviado ao chaincode.
+
+```bash
+cd chaincode-risk-factor
+go run ./cmd/obd-to-readings \
+  -input ../data/obd_clean.csv \
+  -route obd-15-spin-trajeto-t1 \
+  -output /tmp/obd-trajeto.json
+```
+
+O arquivo `obd_clean.csv` contém 2.753 leituras desse trajeto. O identificador
+do trajeto que será gravado no ledger é definido separadamente na transação.
+
 ## Execução na rede deste repositório (CCAS)
 
 Este projeto usa **Chaincode as a Service**. Por isso, o contrato é compilado
