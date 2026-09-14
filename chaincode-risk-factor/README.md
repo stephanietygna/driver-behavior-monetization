@@ -9,15 +9,18 @@ curva acentuada (1,96%) e cansaço do condutor (61,77%). Como essas três
 funções representam 79,85% do total da tabela de origem, elas são normalizadas
 para somar 1 antes de compor a equação.
 
-Uma aceleração ou desaceleração anômala é calculada para cada par de leituras
-consecutivas:
+Uma aceleração ou desaceleração anômala é identificada quando há variação de
+pelo menos `30 km/h` dentro de uma janela de até `10 s`. O contrato percorre
+todas as leituras e, para cada leitura atual, calcula:
 
 ```text
-aceleração = (velocidade atual − velocidade anterior) / tempo em segundos
+aceleração = (velocidade atual − velocidade de referência) / tempo em segundos
 ```
 
-O limiar é `3 km/h/s`, equivalente a uma variação de `30 km/h` em `10 s`. A
-velocidade permanece em km/h em todos os cálculos.
+A leitura de referência é a mais antiga ainda localizada nos 10 segundos
+anteriores. A ocorrência é registrada quando a variação acumulada de velocidade
+nessa janela é maior ou igual a `30 km/h`. A velocidade permanece em km/h em
+todos os cálculos.
 
 ## Transacoes
 
