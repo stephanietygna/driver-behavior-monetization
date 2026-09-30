@@ -21,8 +21,8 @@ import (
 // Calibration reúne os parâmetros fixados pelo protocolo do estudo.
 // As durações usam minutos para facilitar serialização e auditoria.
 type Calibration struct {
-	// Aceleração/desaceleração: |Δv| > 30 km/h em até 10 s,
-	// usando a amostra imediatamente anterior como referência (k = j - 1).
+	// Aceleração/desaceleração: |Δv| >= 30 km/h em uma janela de até 10 s,
+	// comparando a leitura atual com referências anteriores nessa janela.
 	AnomalousSpeedChangeThresholdKmh float64 `json:"anomalousSpeedChangeThresholdKmh"`
 	MaxSampleGapSeconds              int64   `json:"maxSampleGapSeconds"`
 	// Curvas: variação angular bruta entre bearings consecutivos em radianos.
