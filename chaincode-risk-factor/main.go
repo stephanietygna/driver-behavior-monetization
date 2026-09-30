@@ -321,51 +321,21 @@ func validateCalibration(calibration Calibration) error {
 
 func countAnomalousAccelerations(readings []Reading, calibration Calibration) int {
 	count := 0
-	inAnomalousEvent := false
-	lastDirection := 0
 
 	for i := 1; i < len(readings); i++ {
-		foundAnomalousChange := false
-		direction := 0
-
-		// Compara a leitura atual com todas as leituras anteriores ainda dentro
-		// da janela de 10 s. Assim, 20 -> 50 km/h em 8 s é detectado mesmo
-		// quando existirem leituras intermediárias entre os dois pontos.
-		for k := i - 1; k >= 0; k-- {
-			deltaSeconds := readings[i].Timestamp.Sub(readings[k].Timestamp).Seconds()
-			if deltaSeconds <= 0 {
-				continue
-			}
-			if deltaSeconds > float64(calibration.MaxSampleGapSeconds) {
-				break
-			}
-
-			deltaSpeed := readings[i].SpeedKmh - readings[k].SpeedKmh
-			// a_i,j = (v_i,j - v_i,k) / (t_i,j - t_i,k). A anomalia
-			// ocorre quando |Δv| é de pelo menos 30 km/h na janela de 10 s.
-			acceleration := deltaSpeed / deltaSeconds
-			if math.Abs(acceleration*deltaSeconds) >= calibration.AnomalousSpeedChangeThresholdKmh {
-				foundAnomalousChange = true
-				if deltaSpeed > 0 {
-					direction = 1
-				} else {
-					direction = -1
-				}
-				break
-			}
+		// A amostra de referência é exclusivamente a leitura imediatamente
+		// anterior: k = j - 1, conforme a equação da dissertação.
+		deltaSeconds := readings[i].Timestamp.Sub(readings[i-1].Timestamp).Seconds()
+		if deltaSeconds <= 0 || deltaSeconds > float64(calibration.MaxSampleGapSeconds) {
+			continue
 		}
 
-		// Leituras consecutivas que pertencem à mesma aceleração/frenagem
-		// representam um único evento. Uma inversão de sentido inicia outro.
-		if foundAnomalousChange {
-			if !inAnomalousEvent || direction != lastDirection {
-				count++
-			}
-			inAnomalousEvent = true
-			lastDirection = direction
-		} else {
-			inAnomalousEvent = false
-			lastDirection = 0
+		// a_i,j = (v_i,j - v_i,j-1) / (t_i,j - t_i,j-1).
+		// A ocorrência exige |Δv| estritamente maior que 30 km/h.
+		deltaSpeed := readings[i].SpeedKmh - readings[i-1].SpeedKmh
+		acceleration := deltaSpeed / deltaSeconds
+		if math.Abs(acceleration*deltaSeconds) > calibration.AnomalousSpeedChangeThresholdKmh {
+			count++
 		}
 	}
 	return count

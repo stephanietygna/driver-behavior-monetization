@@ -61,30 +61,38 @@ func TestValidPauseRestartsFatigueClock(t *testing.T) {
 	assertClose(t, "M_T", assessment.Fatigue.Metric, 0)
 }
 
-func TestAccelerationUsesTenSecondWindowAndGroupsOneManeuver(t *testing.T) {
+func TestAccelerationUsesImmediatelyPreviousSample(t *testing.T) {
 	calibration := defaultCalibration()
 	start := time.Date(2026, time.January, 1, 8, 0, 0, 0, time.UTC)
 
-	// 20 -> 50 km/h em 8 s deve ser identificado, ainda que existam
-	// leituras intermediárias sem um salto individual de 30 km/h.
+	// Uma variação estritamente maior que 30 km/h entre duas amostras
+	// consecutivas, em até 10 s, é uma ocorrência.
 	validChange := []Reading{
-		{Timestamp: start, SpeedKmh: 20},
-		{Timestamp: start.Add(2 * time.Second), SpeedKmh: 25},
-		{Timestamp: start.Add(4 * time.Second), SpeedKmh: 32},
-		{Timestamp: start.Add(6 * time.Second), SpeedKmh: 40},
-		{Timestamp: start.Add(8 * time.Second), SpeedKmh: 50},
+		{Timestamp: start, SpeedKmh: 10},
+		{Timestamp: start.Add(8 * time.Second), SpeedKmh: 41},
 	}
 	if got := countAnomalousAccelerations(validChange, calibration); got != 1 {
 		t.Fatalf("variação dentro do intervalo: obtido %d evento(s); esperado 1", got)
 	}
 
-	// A formulação "pelo menos 30 km/h" inclui exatamente 30 km/h.
+	// O texto exige |Δv| > 30: exatamente 30 km/h não é ocorrência.
 	exactThreshold := []Reading{
 		{Timestamp: start, SpeedKmh: 10},
 		{Timestamp: start.Add(8 * time.Second), SpeedKmh: 40},
 	}
-	if got := countAnomalousAccelerations(exactThreshold, calibration); got != 1 {
-		t.Fatalf("variação no limite: obtido %d evento(s); esperado 1", got)
+	if got := countAnomalousAccelerations(exactThreshold, calibration); got != 0 {
+		t.Fatalf("variação no limite: obtido %d evento(s); esperado 0", got)
+	}
+
+	// Variação acumulada de 20 -> 50 km/h não conta se cada par
+	// consecutivo fica abaixo do limite; a referência é sempre j-1.
+	gradualChange := []Reading{
+		{Timestamp: start, SpeedKmh: 20},
+		{Timestamp: start.Add(4 * time.Second), SpeedKmh: 35},
+		{Timestamp: start.Add(8 * time.Second), SpeedKmh: 50},
+	}
+	if got := countAnomalousAccelerations(gradualChange, calibration); got != 0 {
+		t.Fatalf("variação acumulada: obtido %d evento(s); esperado 0", got)
 	}
 
 	// Mesmo com Δv > 30, intervalo superior a 10 s não é contabilizado.
