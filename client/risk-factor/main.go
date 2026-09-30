@@ -238,8 +238,8 @@ func printAssessment(assessment Assessment) {
 		fatigueContribution, assessment.Calibration.WeightFatigue, assessment.Fatigue.Metric)
 
 	fmt.Println("\n5. FATOR DE RISCO FINAL")
-	fmt.Printf("   Índice normalizado (R_i): %.4f\n", assessment.RiskFactor)
-	fmt.Println("   Escala: 0 = menor risco relativo; 1 = maior risco relativo do modelo.")
+	fmt.Printf("   Índice relativo de risco (R_i): %.4f (%.2f%% da escala do modelo)\n",
+		assessment.RiskFactor, assessment.RiskFactor*100)
 	fmt.Println("========================================")
 }
 
