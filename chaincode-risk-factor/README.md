@@ -11,14 +11,18 @@ para somar 1 antes de compor a equação.
 
 ## Métricas implementadas
 
-1. **Aceleração/desaceleração anômala**: para cada leitura `j`, a referência
-é a leitura imediatamente anterior (`k = j - 1`). O contrato calcula:
+1. **Aceleração/desaceleração anômala**: para cada leitura atual `j`, o
+contrato analisa todas as leituras anteriores `k` que ainda estejam na janela
+de até 10 segundos. Para cada comparação, calcula:
 
 ```text
-a(i,j) = (v(i,j) − v(i,j−1)) / (t(i,j) − t(i,j−1))
+a(i,j,k) = (v(i,j) − v(i,k)) / (t(i,j) − t(i,k))
 ```
 
-Uma ocorrência é contabilizada se `|Δv| > 30 km/h` e `0 < Δt ≤ 10 s`.
+Uma ocorrência é contabilizada se `|Δv| ≥ 30 km/h` e `0 < Δt ≤ 10 s`.
+Assim, uma evolução como 20 → 50 km/h em 8 s é detectada mesmo com leituras
+intermediárias. Leituras consecutivas da mesma aceleração ou desaceleração são
+agrupadas em uma única ocorrência.
 
 2. **Mudança brusca de direção**: o contrato calcula o *bearing* entre duas
 posições consecutivas e usa a menor diferença angular entre *bearings*

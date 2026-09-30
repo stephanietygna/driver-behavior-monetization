@@ -61,26 +61,30 @@ func TestValidPauseRestartsFatigueClock(t *testing.T) {
 	assertClose(t, "M_T", assessment.Fatigue.Metric, 0)
 }
 
-func TestAccelerationUsesSpeedChangeAndMaximumGap(t *testing.T) {
+func TestAccelerationUsesTenSecondWindowAndGroupsOneManeuver(t *testing.T) {
 	calibration := defaultCalibration()
 	start := time.Date(2026, time.January, 1, 8, 0, 0, 0, time.UTC)
 
-	// Uma variação maior que 30 km/h em até 10 s é uma ocorrência.
+	// 20 -> 50 km/h em 8 s deve ser identificado, ainda que existam
+	// leituras intermediárias sem um salto individual de 30 km/h.
 	validChange := []Reading{
-		{Timestamp: start, SpeedKmh: 10},
-		{Timestamp: start.Add(8 * time.Second), SpeedKmh: 41},
+		{Timestamp: start, SpeedKmh: 20},
+		{Timestamp: start.Add(2 * time.Second), SpeedKmh: 25},
+		{Timestamp: start.Add(4 * time.Second), SpeedKmh: 32},
+		{Timestamp: start.Add(6 * time.Second), SpeedKmh: 40},
+		{Timestamp: start.Add(8 * time.Second), SpeedKmh: 50},
 	}
 	if got := countAnomalousAccelerations(validChange, calibration); got != 1 {
 		t.Fatalf("variação dentro do intervalo: obtido %d evento(s); esperado 1", got)
 	}
 
-	// Exatamente 30 km/h não ultrapassa o limite estrito |Δv| > 30.
+	// A formulação "pelo menos 30 km/h" inclui exatamente 30 km/h.
 	exactThreshold := []Reading{
 		{Timestamp: start, SpeedKmh: 10},
 		{Timestamp: start.Add(8 * time.Second), SpeedKmh: 40},
 	}
-	if got := countAnomalousAccelerations(exactThreshold, calibration); got != 0 {
-		t.Fatalf("variação no limite: obtido %d evento(s); esperado 0", got)
+	if got := countAnomalousAccelerations(exactThreshold, calibration); got != 1 {
+		t.Fatalf("variação no limite: obtido %d evento(s); esperado 1", got)
 	}
 
 	// Mesmo com Δv > 30, intervalo superior a 10 s não é contabilizado.
