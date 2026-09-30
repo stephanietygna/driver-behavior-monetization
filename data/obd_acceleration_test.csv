@@ -1,0 +1,4 @@
+timestamp,lat,lon,vehicle_speed,id_route
+2026-01-01 12:00:00.000,-22.900000,-43.200000,20,acceleration-test
+2026-01-01 12:00:05.000,-22.900000,-43.199900,51,acceleration-test
+2026-01-01 12:00:06.000,-22.900000,-43.199800,51,acceleration-test
