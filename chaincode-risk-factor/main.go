@@ -21,17 +21,19 @@ import (
 // Calibration reúne os parâmetros fixados pelo protocolo do estudo.
 // As durações usam minutos para facilitar serialização e auditoria.
 type Calibration struct {
-	// Uma ocorrência é uma variação de pelo menos 30 km/h em até 10 s.
+	// Aceleração/desaceleração: |Δv| > 30 km/h em até 10 s,
+	// usando a amostra imediatamente anterior como referência (k = j - 1).
 	AnomalousSpeedChangeThresholdKmh float64 `json:"anomalousSpeedChangeThresholdKmh"`
-	AccelerationWindowSeconds        int64   `json:"accelerationWindowSeconds"`
-	SharpTurnAngleThreshold          float64 `json:"sharpTurnAngleThreshold"`
-	SharpTurnSpeedThreshold          float64 `json:"sharpTurnSpeedThreshold"`
-	FatigueThresholdMinutes          int64   `json:"fatigueThresholdMinutes"`
-	StoppedSpeedThreshold            float64 `json:"stoppedSpeedThreshold"`
-	MinValidPauseMinutes             int64   `json:"minValidPauseMinutes"`
-	WeightAnomalousAccel             float64 `json:"weightAnomalousAccel"`
-	WeightSharpTurn                  float64 `json:"weightSharpTurn"`
-	WeightFatigue                    float64 `json:"weightFatigue"`
+	MaxSampleGapSeconds              int64   `json:"maxSampleGapSeconds"`
+	// Curvas: variação angular bruta entre bearings consecutivos em radianos.
+	SharpTurnAngleThresholdRad float64 `json:"sharpTurnAngleThresholdRad"`
+	SharpTurnSpeedThresholdKmh float64 `json:"sharpTurnSpeedThresholdKmh"`
+	FatigueThresholdMinutes    int64   `json:"fatigueThresholdMinutes"`
+	StoppedSpeedThreshold      float64 `json:"stoppedSpeedThreshold"`
+	MinValidPauseMinutes       int64   `json:"minValidPauseMinutes"`
+	WeightAnomalousAccel       float64 `json:"weightAnomalousAccel"`
+	WeightSharpTurn            float64 `json:"weightSharpTurn"`
+	WeightFatigue              float64 `json:"weightFatigue"`
 }
 
 // Reading representa uma amostra de telemetria enviada pelo cliente.
@@ -44,11 +46,10 @@ type Reading struct {
 }
 
 type FatigueMetrics struct {
-	// Base vale 1 quando ao menos um período contínuo ultrapassa o limite.
-	Base float64 `json:"base"`
-	// Excess é a parcela do tempo total de condução que excedeu o limite.
-	Excess float64 `json:"excess"`
-	// Os três campos abaixo tornam a métrica auditável em unidades de tempo.
+	// Metric é a parcela do tempo total conduzida além do limiar, calculada
+	// separadamente para cada período contínuo delimitado por pausa válida.
+	Metric float64 `json:"metric"`
+	// Os campos abaixo tornam a métrica auditável em unidades de tempo.
 	TotalDrivingMinutes      float64 `json:"totalDrivingMinutes"`
 	LongestContinuousMinutes float64 `json:"longestContinuousMinutes"`
 	ExcessMinutes            float64 `json:"excessMinutes"`
@@ -66,7 +67,6 @@ type RiskAssessment struct {
 	AccelerationMetric  float64        `json:"accelerationMetric"`
 	TurnMetric          float64        `json:"turnMetric"`
 	Fatigue             FatigueMetrics `json:"fatigue"`
-	ScoreWithoutExcess  float64        `json:"scoreWithoutExcess"`
 	RiskFactor          float64        `json:"riskFactor"`
 	Calibration         Calibration    `json:"calibration"`
 }
@@ -86,9 +86,9 @@ type serverConfig struct {
 func defaultCalibration() Calibration {
 	return Calibration{
 		AnomalousSpeedChangeThresholdKmh: 30.0,
-		AccelerationWindowSeconds:        10,
-		SharpTurnAngleThreshold:          0.7,
-		SharpTurnSpeedThreshold:          30.0,
+		MaxSampleGapSeconds:              10,
+		SharpTurnAngleThresholdRad:       0.7,
+		SharpTurnSpeedThresholdKmh:       30.0,
 		FatigueThresholdMinutes:          80,
 		StoppedSpeedThreshold:            3.0,
 		MinValidPauseMinutes:             5,
@@ -200,9 +200,13 @@ func decompressReadings(compressedReadings string) (string, error) {
 
 	// Limite defensivo: impede que um pequeno arquivo comprimido gere uma carga
 	// excessiva no container do chaincode.
-	jsonBytes, err := io.ReadAll(io.LimitReader(reader, 10*1024*1024))
+	const maxUncompressedBytes = 10 * 1024 * 1024
+	jsonBytes, err := io.ReadAll(io.LimitReader(reader, maxUncompressedBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("erro ao ler leituras descompactadas: %w", err)
+	}
+	if len(jsonBytes) > maxUncompressedBytes {
+		return "", errors.New("leituras descompactadas excedem o limite de 10 MiB")
 	}
 	return string(jsonBytes), nil
 }
@@ -242,17 +246,16 @@ func calculateAssessment(tripID string, readings []Reading, calibration Calibrat
 
 	accelerationCount := countAnomalousAccelerations(readings, calibration)
 	turnCount := countSharpTurns(readings, calibration)
+	// Ā_i e D̄_i são taxas de ocorrências por minuto do trajeto,
+	// limitadas a 1 para preservar a escala normalizada do modelo.
 	accelerationMetric := math.Min(1, float64(accelerationCount)/tripMinutes)
 	turnMetric := math.Min(1, float64(turnCount)/tripMinutes)
 	fatigue := analyzeFatigue(readings, calibration)
 
-	// Primeiro, combinam-se as três métricas comportamentais ponderadas.
-	scoreWithoutExcess := calibration.WeightAnomalousAccel*accelerationMetric +
+	// O resultado é um escore relativo, não uma probabilidade de acidente.
+	riskFactor := calibration.WeightAnomalousAccel*accelerationMetric +
 		calibration.WeightSharpTurn*turnMetric +
-		calibration.WeightFatigue*fatigue.Base
-
-	// Depois, o excesso de fadiga ocupa apenas a parcela restante até 1.
-	riskFactor := scoreWithoutExcess + (1-scoreWithoutExcess)*fatigue.Excess
+		calibration.WeightFatigue*fatigue.Metric
 	riskFactor = math.Min(1, math.Max(0, riskFactor))
 
 	return &RiskAssessment{
@@ -265,7 +268,6 @@ func calculateAssessment(tripID string, readings []Reading, calibration Calibrat
 		AccelerationMetric:  accelerationMetric,
 		TurnMetric:          turnMetric,
 		Fatigue:             fatigue,
-		ScoreWithoutExcess:  scoreWithoutExcess,
 		RiskFactor:          riskFactor,
 		Calibration:         calibration,
 	}, nil
@@ -302,9 +304,10 @@ func validateCalibration(calibration Calibration) error {
 	if calibration.FatigueThresholdMinutes <= 0 || calibration.MinValidPauseMinutes <= 0 {
 		return errors.New("os limiares de duração devem ser positivos")
 	}
-	if calibration.AnomalousSpeedChangeThresholdKmh < 0 || calibration.AccelerationWindowSeconds <= 0 ||
-		calibration.SharpTurnAngleThreshold < 0 ||
-		calibration.SharpTurnSpeedThreshold < 0 || calibration.StoppedSpeedThreshold < 0 {
+	if calibration.AnomalousSpeedChangeThresholdKmh <= 0 || calibration.MaxSampleGapSeconds <= 0 ||
+		calibration.SharpTurnAngleThresholdRad <= 0 ||
+		calibration.SharpTurnSpeedThresholdKmh < 0 ||
+		calibration.StoppedSpeedThreshold < 0 {
 		return errors.New("os limiares de velocidade e aceleração não podem ser negativos")
 	}
 
@@ -318,32 +321,20 @@ func validateCalibration(calibration Calibration) error {
 
 func countAnomalousAccelerations(readings []Reading, calibration Calibration) int {
 	count := 0
-	window := time.Duration(calibration.AccelerationWindowSeconds) * time.Second
-	start := 0
-	inAnomalousEvent := false
 
 	for i := 1; i < len(readings); i++ {
-		// Cada linha atual é comparada à leitura mais antiga ainda dentro dos
-		// 10 segundos anteriores. Assim, o contrato percorre todas as leituras
-		// e identifica uma variação acumulada de velocidade nessa janela.
-		for start < i && readings[i].Timestamp.Sub(readings[start].Timestamp) > window {
-			start++
-		}
-		if start == i {
+		deltaSeconds := readings[i].Timestamp.Sub(readings[i-1].Timestamp).Seconds()
+		if deltaSeconds <= 0 || deltaSeconds > float64(calibration.MaxSampleGapSeconds) {
 			continue
 		}
 
-		deltaSeconds := readings[i].Timestamp.Sub(readings[start].Timestamp).Seconds()
-		acceleration := (readings[i].SpeedKmh - readings[start].SpeedKmh) / deltaSeconds
-		speedChange := math.Abs(acceleration * deltaSeconds)
-		isAnomalous := speedChange >= calibration.AnomalousSpeedChangeThresholdKmh
-
-		// Uma sequência contínua acima do limiar é uma única ocorrência, em
-		// vez de gerar uma penalidade para cada linha da mesma manobra.
-		if isAnomalous && !inAnomalousEvent {
+		// a_i,j = (v_i,j - v_i,j-1) / (t_i,j - t_i,j-1).
+		// O evento é definido pela variação |Δv|, desde que Δt seja no máximo 10 s.
+		deltaSpeed := readings[i].SpeedKmh - readings[i-1].SpeedKmh
+		acceleration := deltaSpeed / deltaSeconds
+		if math.Abs(acceleration*deltaSeconds) > calibration.AnomalousSpeedChangeThresholdKmh {
 			count++
 		}
-		inAnomalousEvent = isAnomalous
 	}
 	return count
 }
@@ -360,11 +351,19 @@ func countSharpTurns(readings []Reading, calibration Calibration) int {
 	}
 
 	count := 0
+	inSharpTurnEvent := false
 	for i := 2; i < len(readings); i++ {
+		if !readings[i].Timestamp.After(readings[i-1].Timestamp) {
+			inSharpTurnEvent = false
+			continue
+		}
 		turnAngle := angleDifference(bearings[i], bearings[i-1])
-		if turnAngle > calibration.SharpTurnAngleThreshold && readings[i].SpeedKmh >= calibration.SharpTurnSpeedThreshold {
+		isSharpTurn := turnAngle > calibration.SharpTurnAngleThresholdRad &&
+			readings[i].SpeedKmh >= calibration.SharpTurnSpeedThresholdKmh
+		if isSharpTurn && !inSharpTurnEvent {
 			count++
 		}
+		inSharpTurnEvent = isSharpTurn
 	}
 	return count
 }
@@ -409,13 +408,10 @@ func analyzeFatigue(readings []Reading, calibration Calibration) FatigueMetrics 
 	}
 
 	metrics := FatigueMetrics{
-		Excess:                   float64(totalExcess) / float64(totalDuration),
+		Metric:                   float64(totalExcess) / float64(totalDuration),
 		TotalDrivingMinutes:      totalDuration.Minutes(),
 		LongestContinuousMinutes: longestPeriod.Minutes(),
 		ExcessMinutes:            totalExcess.Minutes(),
-	}
-	if totalExcess > 0 {
-		metrics.Base = 1
 	}
 	return metrics
 }

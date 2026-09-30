@@ -9,18 +9,41 @@ curva acentuada (1,96%) e cansaço do condutor (61,77%). Como essas três
 funções representam 79,85% do total da tabela de origem, elas são normalizadas
 para somar 1 antes de compor a equação.
 
-Uma aceleração ou desaceleração anômala é identificada quando há variação de
-pelo menos `30 km/h` dentro de uma janela de até `10 s`. O contrato percorre
-todas as leituras e, para cada leitura atual, calcula:
+## Métricas implementadas
+
+1. **Aceleração/desaceleração anômala**: para cada leitura `j`, a referência
+é a leitura imediatamente anterior (`k = j - 1`). O contrato calcula:
 
 ```text
-aceleração = (velocidade atual − velocidade de referência) / tempo em segundos
+a(i,j) = (v(i,j) − v(i,j−1)) / (t(i,j) − t(i,j−1))
 ```
 
-A leitura de referência é a mais antiga ainda localizada nos 10 segundos
-anteriores. A ocorrência é registrada quando a variação acumulada de velocidade
-nessa janela é maior ou igual a `30 km/h`. A velocidade permanece em km/h em
-todos os cálculos.
+Uma ocorrência é contabilizada se `|Δv| > 30 km/h` e `0 < Δt ≤ 10 s`.
+
+2. **Mudança brusca de direção**: o contrato calcula o *bearing* entre duas
+posições consecutivas e usa a menor diferença angular entre *bearings*
+consecutivos. Há evento se `Δθ > 0,7 rad` e `v ≥ 30 km/h`. Leituras
+consecutivas da mesma manobra são agrupadas em uma única ocorrência.
+
+3. **Tempo de condução contínua**: uma pausa válida encerra o período atual.
+Para cada período `d`, o excesso é `max(0, d − τc)`. A métrica final é:
+
+```text
+M_T,i = soma dos excessos / soma dos períodos de condução contínua
+```
+
+As taxas de aceleração e curva são normalizadas por minuto do trajeto:
+
+```text
+Ā_i = min(1, A_i / t_i)
+D̄_i = min(1, D_i / t_i)
+```
+
+O índice de risco é a soma ponderada direta:
+
+```text
+R_i = w_A·Ā_i + w_D·D̄_i + w_T·M_T,i
+```
 
 ## Transacoes
 

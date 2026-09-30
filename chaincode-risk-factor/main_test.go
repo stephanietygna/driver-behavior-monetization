@@ -19,12 +19,11 @@ func TestFatigueRiskRemainsNormalized(t *testing.T) {
 	tests := []struct {
 		name       string
 		duration   time.Duration
-		wantBase   float64
-		wantExcess float64
+		wantMetric float64
 	}{
-		{"no limite", limit, 0, 0},
-		{"um minuto acima do limite", limit + time.Minute, 1, float64(time.Minute) / float64(limit+time.Minute)},
-		{"dobro do limite", 2 * limit, 1, 0.5},
+		{"no limite", limit, 0},
+		{"um minuto acima do limite", limit + time.Minute, float64(time.Minute) / float64(limit+time.Minute)},
+		{"dobro do limite", 2 * limit, 0.5},
 	}
 
 	for _, test := range tests {
@@ -34,8 +33,7 @@ func TestFatigueRiskRemainsNormalized(t *testing.T) {
 				t.Fatalf("erro inesperado: %v", err)
 			}
 
-			assertClose(t, "B_i", assessment.Fatigue.Base, test.wantBase)
-			assertClose(t, "E_i", assessment.Fatigue.Excess, test.wantExcess)
+			assertClose(t, "M_T", assessment.Fatigue.Metric, test.wantMetric)
 			if assessment.RiskFactor < 0 || assessment.RiskFactor > 1 {
 				t.Fatalf("R_i deve pertencer a [0, 1]; obtido %.10f", assessment.RiskFactor)
 			}
@@ -60,8 +58,70 @@ func TestValidPauseRestartsFatigueClock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
-	assertClose(t, "B_i", assessment.Fatigue.Base, 0)
-	assertClose(t, "E_i", assessment.Fatigue.Excess, 0)
+	assertClose(t, "M_T", assessment.Fatigue.Metric, 0)
+}
+
+func TestAccelerationUsesSpeedChangeAndMaximumGap(t *testing.T) {
+	calibration := defaultCalibration()
+	start := time.Date(2026, time.January, 1, 8, 0, 0, 0, time.UTC)
+
+	// Uma variação maior que 30 km/h em até 10 s é uma ocorrência.
+	validChange := []Reading{
+		{Timestamp: start, SpeedKmh: 10},
+		{Timestamp: start.Add(8 * time.Second), SpeedKmh: 41},
+	}
+	if got := countAnomalousAccelerations(validChange, calibration); got != 1 {
+		t.Fatalf("variação dentro do intervalo: obtido %d evento(s); esperado 1", got)
+	}
+
+	// Exatamente 30 km/h não ultrapassa o limite estrito |Δv| > 30.
+	exactThreshold := []Reading{
+		{Timestamp: start, SpeedKmh: 10},
+		{Timestamp: start.Add(8 * time.Second), SpeedKmh: 40},
+	}
+	if got := countAnomalousAccelerations(exactThreshold, calibration); got != 0 {
+		t.Fatalf("variação no limite: obtido %d evento(s); esperado 0", got)
+	}
+
+	// Mesmo com Δv > 30, intervalo superior a 10 s não é contabilizado.
+	lateChange := []Reading{
+		{Timestamp: start, SpeedKmh: 10},
+		{Timestamp: start.Add(11 * time.Second), SpeedKmh: 41},
+	}
+	if got := countAnomalousAccelerations(lateChange, calibration); got != 0 {
+		t.Fatalf("variação fora do intervalo: obtido %d evento(s); esperado 0", got)
+	}
+}
+
+func TestAngularWrapUsesSmallestDifference(t *testing.T) {
+	got := angleDifference(359*math.Pi/180, 1*math.Pi/180)
+	want := 2 * math.Pi / 180
+	assertClose(t, "diferença angular circular", got, want)
+}
+
+func TestSharpTurnUsesAngleAndGroupsSamples(t *testing.T) {
+	calibration := defaultCalibration()
+	start := time.Date(2026, time.January, 1, 8, 0, 0, 0, time.UTC)
+	readings := []Reading{
+		{Timestamp: start, Lat: 0, Lon: 0, SpeedKmh: 50},
+		{Timestamp: start.Add(time.Second), Lat: 0, Lon: 0.0001, SpeedKmh: 50},
+		{Timestamp: start.Add(2 * time.Second), Lat: 0.0001, Lon: 0.0001, SpeedKmh: 50},
+		{Timestamp: start.Add(3 * time.Second), Lat: 0.0001, Lon: 0, SpeedKmh: 50},
+	}
+	if got := countSharpTurns(readings, calibration); got != 1 {
+		t.Fatalf("obtido %d evento(s); esperado 1", got)
+	}
+}
+
+func TestRiskScoreIsWeightedCombination(t *testing.T) {
+	calibration := defaultCalibration()
+	duration := 2 * time.Duration(calibration.FatigueThresholdMinutes) * time.Minute
+	assessment, err := calculateAssessment("teste", straightTrip(duration), calibration)
+	if err != nil {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+	want := calibration.WeightFatigue * 0.5
+	assertClose(t, "R_i", assessment.RiskFactor, want)
 }
 
 func straightTrip(duration time.Duration) []Reading {
