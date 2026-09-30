@@ -45,8 +45,7 @@ type Assessment struct {
 	AccelerationMetric  float64 `json:"accelerationMetric"`
 	TurnMetric          float64 `json:"turnMetric"`
 	Fatigue             struct {
-		Base                     float64 `json:"base"`
-		Excess                   float64 `json:"excess"`
+		Metric                   float64 `json:"metric"`
 		TotalDrivingMinutes      float64 `json:"totalDrivingMinutes"`
 		LongestContinuousMinutes float64 `json:"longestContinuousMinutes"`
 		ExcessMinutes            float64 `json:"excessMinutes"`
@@ -57,8 +56,7 @@ type Assessment struct {
 		WeightSharpTurn         float64 `json:"weightSharpTurn"`
 		WeightFatigue           float64 `json:"weightFatigue"`
 	} `json:"calibration"`
-	ScoreWithoutExcess float64 `json:"scoreWithoutExcess"`
-	RiskFactor         float64 `json:"riskFactor"`
+	RiskFactor float64 `json:"riskFactor"`
 }
 
 func main() {
@@ -224,24 +222,20 @@ func printAssessment(assessment Assessment) {
 	fmt.Printf("   Maior período contínuo: %s\n", formatMinutes(assessment.Fatigue.LongestContinuousMinutes))
 	fmt.Printf("   Limite configurado: %d min\n", assessment.Calibration.FatigueThresholdMinutes)
 	fmt.Printf("   Excesso de fadiga: %s\n", formatMinutes(assessment.Fatigue.ExcessMinutes))
-	fmt.Printf("   Indicador-base (B_i): %.4f\n", assessment.Fatigue.Base)
-	fmt.Printf("   Métrica de excesso (E_i): %.4f\n", assessment.Fatigue.Excess)
-	fmt.Println("   B_i = 1 indica que houve período contínuo acima do limite de fadiga.")
+	fmt.Printf("   Métrica normalizada (M_T,i): %.4f\n", assessment.Fatigue.Metric)
+	fmt.Println("   M_T,i representa a parcela do tempo total conduzida além do limiar.")
 
 	accelerationContribution := assessment.Calibration.WeightAnomalousAccel * assessment.AccelerationMetric
 	turnContribution := assessment.Calibration.WeightSharpTurn * assessment.TurnMetric
-	fatigueContribution := assessment.Calibration.WeightFatigue * assessment.Fatigue.Base
-	excessContribution := (1 - assessment.ScoreWithoutExcess) * assessment.Fatigue.Excess
+	fatigueContribution := assessment.Calibration.WeightFatigue * assessment.Fatigue.Metric
 
 	fmt.Println("\n4. COMBINAÇÃO DAS MÉTRICAS")
 	fmt.Printf("   Aceleração anômala: %.4f  (w_A = %.4f × A_i = %.4f)\n",
 		accelerationContribution, assessment.Calibration.WeightAnomalousAccel, assessment.AccelerationMetric)
 	fmt.Printf("   Curvas bruscas: %.4f      (w_D = %.4f × D_i = %.4f)\n",
 		turnContribution, assessment.Calibration.WeightSharpTurn, assessment.TurnMetric)
-	fmt.Printf("   Fadiga-base: %.4f        (w_T = %.4f × B_i = %.4f)\n",
-		fatigueContribution, assessment.Calibration.WeightFatigue, assessment.Fatigue.Base)
-	fmt.Printf("   Score sem excesso: %.4f\n", assessment.ScoreWithoutExcess)
-	fmt.Printf("   Acréscimo pelo excesso de fadiga: %.4f\n", excessContribution)
+	fmt.Printf("   Condução contínua: %.4f  (w_T = %.4f × M_T,i = %.4f)\n",
+		fatigueContribution, assessment.Calibration.WeightFatigue, assessment.Fatigue.Metric)
 
 	fmt.Println("\n5. FATOR DE RISCO FINAL")
 	fmt.Printf("   Índice normalizado (R_i): %.4f\n", assessment.RiskFactor)
