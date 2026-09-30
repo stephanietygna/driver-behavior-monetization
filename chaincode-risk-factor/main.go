@@ -321,21 +321,51 @@ func validateCalibration(calibration Calibration) error {
 
 func countAnomalousAccelerations(readings []Reading, calibration Calibration) int {
 	count := 0
+	inAnomalousEvent := false
+	lastDirection := 0
 
 	for i := 1; i < len(readings); i++ {
-		// A amostra de referência é exclusivamente a leitura imediatamente
-		// anterior: k = j - 1, conforme a equação da dissertação.
-		deltaSeconds := readings[i].Timestamp.Sub(readings[i-1].Timestamp).Seconds()
-		if deltaSeconds <= 0 || deltaSeconds > float64(calibration.MaxSampleGapSeconds) {
-			continue
+		foundAnomalousChange := false
+		direction := 0
+
+		// A leitura j é comparada a referências anteriores k dentro da
+		// janela de até 10 s. Assim, 50 -> 80 km/h em 10 s é identificado
+		// mesmo quando há leituras intermediárias entre os dois pontos.
+		for k := i - 1; k >= 0; k-- {
+			deltaSeconds := readings[i].Timestamp.Sub(readings[k].Timestamp).Seconds()
+			if deltaSeconds <= 0 {
+				continue
+			}
+			if deltaSeconds > float64(calibration.MaxSampleGapSeconds) {
+				break
+			}
+
+			deltaSpeed := readings[i].SpeedKmh - readings[k].SpeedKmh
+			// a(i,j,k) = (v(i,j) - v(i,k)) / (t(i,j) - t(i,k)).
+			// O evento ocorre quando |Delta v| e de pelo menos 30 km/h.
+			acceleration := deltaSpeed / deltaSeconds
+			if math.Abs(acceleration*deltaSeconds) >= calibration.AnomalousSpeedChangeThresholdKmh {
+				foundAnomalousChange = true
+				if deltaSpeed > 0 {
+					direction = 1
+				} else {
+					direction = -1
+				}
+				break
+			}
 		}
 
-		// a_i,j = (v_i,j - v_i,j-1) / (t_i,j - t_i,j-1).
-		// A ocorrência exige |Δv| estritamente maior que 30 km/h.
-		deltaSpeed := readings[i].SpeedKmh - readings[i-1].SpeedKmh
-		acceleration := deltaSpeed / deltaSeconds
-		if math.Abs(acceleration*deltaSeconds) > calibration.AnomalousSpeedChangeThresholdKmh {
-			count++
+		// Várias leituras do mesmo aumento/redução de velocidade equivalem
+		// a uma única ocorrência. Uma mudança de sentido inicia outra.
+		if foundAnomalousChange {
+			if !inAnomalousEvent || direction != lastDirection {
+				count++
+			}
+			inAnomalousEvent = true
+			lastDirection = direction
+		} else {
+			inAnomalousEvent = false
+			lastDirection = 0
 		}
 	}
 	return count
