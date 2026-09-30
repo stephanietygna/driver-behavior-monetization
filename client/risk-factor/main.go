@@ -65,6 +65,7 @@ func main() {
 	tripID := flag.String("trip-id", "", "identificador novo e único do trajeto no ledger")
 	configPath := flag.String("config", "../../resources/inmetro.yaml", "arquivo de configuração da rede")
 	verbose := flag.Bool("verbose", true, "mostrar cada leitura do CSV no terminal")
+	stream := flag.Bool("stream", false, "enviar cada leitura como uma transação antes de finalizar o trajeto")
 	flag.Parse()
 
 	if *tripID == "" {
@@ -73,6 +74,12 @@ func main() {
 
 	readings := readCSV(*inputPath, *routeID, *verbose)
 	validateTimeline(readings)
+	if *stream {
+		fmt.Printf("\nEnviando %d leituras individuais para o trajeto %q...\n", len(readings), *tripID)
+		assessment := invokeStream(*configPath, *tripID, readings)
+		printAssessment(assessment)
+		return
+	}
 
 	// O JSON é compactado somente para caber no limite de argumentos do terminal.
 	// O chaincode descompacta e calcula o mesmo R_i que calcularia com JSON puro.
@@ -87,7 +94,7 @@ func main() {
 
 	fmt.Printf("\n%d leituras prontas para o trajeto %q.\n", len(readings), *tripID)
 	fmt.Printf("Enviando uma única avaliação do trajeto à blockchain...\n\n")
-	assessment := invoke(*configPath, *tripID, compressed)
+	assessment := invokeCompressed(*configPath, *tripID, compressed)
 	printAssessment(assessment)
 }
 
@@ -143,30 +150,60 @@ func readCSV(path, routeID string, verbose bool) []Reading {
 	return readings
 }
 
-func invoke(configPath, tripID, compressedReadings string) Assessment {
+func invokeCompressed(configPath, tripID, compressedReadings string) Assessment {
+	output := invokeOutput(configPath, "CreateRiskAssessmentCompressed", tripID, compressedReadings)
+	return parseAssessment(output)
+}
+
+// invokeStream reproduz um fluxo OBD: cada leitura é registrada como texto no
+// ledger; ao fim, FinalizeTrip calcula as métricas sobre o conjunto completo.
+func invokeStream(configPath, tripID string, readings []Reading) Assessment {
+	for index, reading := range readings {
+		invokeOutput(
+			configPath,
+			"AddReading",
+			tripID,
+			reading.Timestamp.Format(time.RFC3339Nano),
+			strconv.FormatFloat(reading.Lat, 'f', -1, 64),
+			strconv.FormatFloat(reading.Lon, 'f', -1, 64),
+			strconv.FormatFloat(reading.SpeedKmh, 'f', -1, 64),
+		)
+		if (index+1)%100 == 0 || index+1 == len(readings) {
+			fmt.Printf("   %d/%d leituras registradas\n", index+1, len(readings))
+		}
+	}
+	fmt.Println("Finalizando o trajeto e calculando o fator de risco...\n")
+	return parseAssessment(invokeOutput(configPath, "FinalizeTrip", tripID))
+}
+
+func invokeOutput(configPath, function string, arguments ...string) []byte {
 	configPath, err := filepath.Abs(configPath)
 	if err != nil {
 		fatal("não foi possível localizar o arquivo de configuração: %v", err)
 	}
 
-	// Usa o mesmo acesso já validado com `kubectl hlf` na VM.
-	command := exec.Command("kubectl", "hlf", "chaincode", "invoke",
-		"--config="+configPath,
+	commandArguments := []string{"hlf", "chaincode", "invoke",
+		"--config=" + configPath,
 		"--user=inmetro-admin-default",
 		"--peer=inmetro-peer0.default",
 		"--channel=demo",
 		"--chaincode=risk-factor",
-		"--fcn=CreateRiskAssessmentCompressed",
-		"--args="+tripID,
-		"--args="+compressedReadings,
-	)
+		"--fcn=" + function,
+	}
+	for _, argument := range arguments {
+		commandArguments = append(commandArguments, "--args="+argument)
+	}
+	command := exec.Command("kubectl", commandArguments...)
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	output, err := command.Output()
 	if err != nil {
 		fatal("a transação não foi concluída: %v\n%s", err, stderr.String())
 	}
+	return output
+}
 
+func parseAssessment(output []byte) Assessment {
 	jsonOutput, err := firstJSONObject(output)
 	if err != nil {
 		fatal("a blockchain respondeu, mas o resultado não pôde ser lido: %v\n%s", err, output)

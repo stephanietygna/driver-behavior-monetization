@@ -30,6 +30,18 @@ O cliente realiza uma única transação `CreateRiskAssessmentCompressed` ao fim
 da leitura. Isso evita criar uma transação por linha e mantém o cálculo de
 `R_i` aplicado ao trajeto inteiro.
 
+## Simular o envio OBD, leitura por leitura
+
+Para enviar cada linha do CSV como uma transação `AddReading` e só calcular o
+risco no final com `FinalizeTrip`, use `-stream`:
+
+```bash
+go run main.go -trip-id obd-15-spin-stream-t1 -verbose=false -stream
+```
+
+Use um `trip-id` novo. Esse modo é útil para simular a telemetria OBD, mas é
+mais lento: o CSV de exemplo gera 2.753 transações na blockchain.
+
 Ao final, o cliente mostra separadamente o número de acelerações anômalas e
 curvas bruscas. Para fadiga, mostra o tempo de condução, o maior período
 contínuo, o limite, o excesso em minutos e a métrica normalizada `M_T,i`.

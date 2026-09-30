@@ -12,6 +12,19 @@ func TestDefaultCalibrationIsValid(t *testing.T) {
 	}
 }
 
+func TestParseTextReadingAcceptsOBDFields(t *testing.T) {
+	reading, err := parseTextReading("2026-01-01 12:00:05.000", "-22.9", "-43.2", "51")
+	if err != nil {
+		t.Fatalf("leitura textual válida foi rejeitada: %v", err)
+	}
+	if reading.SpeedKmh != 51 || reading.Lat != -22.9 || reading.Lon != -43.2 {
+		t.Fatalf("campos convertidos incorretamente: %#v", reading)
+	}
+	if _, err := parseTextReading("data inválida", "-22.9", "-43.2", "51"); err == nil {
+		t.Fatal("timestamp inválido deveria ser rejeitado")
+	}
+}
+
 func TestFatigueRiskRemainsNormalized(t *testing.T) {
 	calibration := defaultCalibration()
 	limit := time.Duration(calibration.FatigueThresholdMinutes) * time.Minute

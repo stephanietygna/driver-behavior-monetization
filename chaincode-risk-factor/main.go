@@ -12,6 +12,7 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hyperledger/fabric-chaincode-go/shim"
@@ -43,6 +44,26 @@ type Reading struct {
 	Lat       float64   `json:"lat"`
 	Lon       float64   `json:"lon"`
 	SpeedKmh  float64   `json:"vehicleSpeed"`
+}
+
+// BufferedReading conserva os campos textuais recebidos do OBD. Eles são
+// convertidos e validados no momento da entrada, mas permanecem auditáveis no
+// ledger exatamente como foram enviados pelo cliente.
+type BufferedReading struct {
+	Sequence     int    `json:"sequence"`
+	Timestamp    string `json:"timestamp"`
+	Latitude     string `json:"latitude"`
+	Longitude    string `json:"longitude"`
+	VehicleSpeed string `json:"vehicleSpeed"`
+}
+
+// TripBuffer controla o recebimento sequencial de um trajeto. A última data
+// impede que uma leitura fora de ordem altere as métricas posteriormente.
+type TripBuffer struct {
+	TripID        string    `json:"tripId"`
+	ReadingCount  int       `json:"readingCount"`
+	LastTimestamp time.Time `json:"lastTimestamp"`
+	Finalized     bool      `json:"finalized"`
 }
 
 type FatigueMetrics struct {
@@ -143,6 +164,142 @@ func (c *RiskContract) CreateRiskAssessmentCompressed(
 	return c.createRiskAssessment(ctx, tripID, readingsJSON)
 }
 
+// AddReading recebe uma única telemetria OBD. Todos os parâmetros da leitura
+// chegam como texto, compatível com dispositivos que transmitem campos CSV ou
+// strings, mas são validados antes de serem persistidos.
+func (c *RiskContract) AddReading(
+	ctx contractapi.TransactionContextInterface,
+	tripID string,
+	timestamp string,
+	latitude string,
+	longitude string,
+	vehicleSpeed string,
+) (*TripBuffer, error) {
+	if tripID == "" {
+		return nil, errors.New("tripID é obrigatório")
+	}
+	reading, err := parseTextReading(timestamp, latitude, longitude, vehicleSpeed)
+	if err != nil {
+		return nil, err
+	}
+
+	bufferKey, err := ctx.GetStub().CreateCompositeKey("riskTrip", []string{tripID})
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar chave do trajeto: %w", err)
+	}
+	buffer, err := readTripBuffer(ctx, bufferKey, tripID)
+	if err != nil {
+		return nil, err
+	}
+	if buffer.Finalized {
+		return nil, fmt.Errorf("o trajeto %q já foi finalizado", tripID)
+	}
+	if buffer.ReadingCount > 0 && !reading.Timestamp.After(buffer.LastTimestamp) {
+		return nil, errors.New("a leitura deve possuir timestamp posterior ao da leitura anterior")
+	}
+
+	sequence := buffer.ReadingCount + 1
+	readingKey, err := ctx.GetStub().CreateCompositeKey("riskReading", []string{tripID, fmt.Sprintf("%010d", sequence)})
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar chave da leitura: %w", err)
+	}
+	payload, err := json.Marshal(BufferedReading{
+		Sequence:     sequence,
+		Timestamp:    timestamp,
+		Latitude:     latitude,
+		Longitude:    longitude,
+		VehicleSpeed: vehicleSpeed,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("erro ao serializar leitura: %w", err)
+	}
+	if err := ctx.GetStub().PutState(readingKey, payload); err != nil {
+		return nil, fmt.Errorf("erro ao gravar leitura: %w", err)
+	}
+
+	buffer.ReadingCount = sequence
+	buffer.LastTimestamp = reading.Timestamp
+	if err := writeTripBuffer(ctx, bufferKey, buffer); err != nil {
+		return nil, err
+	}
+	return buffer, nil
+}
+
+// FinalizeTrip recupera as leituras adicionadas por AddReading, calcula o
+// risco uma única vez e torna o trajeto somente-leitura.
+func (c *RiskContract) FinalizeTrip(
+	ctx contractapi.TransactionContextInterface,
+	tripID string,
+) (*RiskAssessment, error) {
+	if tripID == "" {
+		return nil, errors.New("tripID é obrigatório")
+	}
+	assessmentKey, err := ctx.GetStub().CreateCompositeKey("riskAssessment", []string{tripID})
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar chave da avaliação: %w", err)
+	}
+	existing, err := ctx.GetStub().GetState(assessmentKey)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao consultar avaliação existente: %w", err)
+	}
+	if existing != nil {
+		return nil, fmt.Errorf("já existe avaliação para o trajeto %q", tripID)
+	}
+
+	bufferKey, err := ctx.GetStub().CreateCompositeKey("riskTrip", []string{tripID})
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar chave do trajeto: %w", err)
+	}
+	buffer, err := readTripBuffer(ctx, bufferKey, tripID)
+	if err != nil {
+		return nil, err
+	}
+	if buffer.Finalized {
+		return nil, fmt.Errorf("o trajeto %q já foi finalizado", tripID)
+	}
+	if buffer.ReadingCount < 2 {
+		return nil, errors.New("são necessárias ao menos 2 leituras para finalizar o trajeto")
+	}
+
+	readings, err := readBufferedReadings(ctx, tripID)
+	if err != nil {
+		return nil, err
+	}
+	if len(readings) != buffer.ReadingCount {
+		return nil, errors.New("a quantidade de leituras armazenadas não confere com o trajeto")
+	}
+	assessment, err := calculateAssessment(tripID, readings, defaultCalibration())
+	if err != nil {
+		return nil, err
+	}
+	payload, err := json.Marshal(assessment)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao serializar avaliação: %w", err)
+	}
+	if err := ctx.GetStub().PutState(assessmentKey, payload); err != nil {
+		return nil, fmt.Errorf("erro ao gravar avaliação: %w", err)
+	}
+
+	buffer.Finalized = true
+	if err := writeTripBuffer(ctx, bufferKey, buffer); err != nil {
+		return nil, err
+	}
+	return assessment, nil
+}
+
+// ReadTripBuffer permite acompanhar a quantidade de leituras recebidas antes
+// de finalizar um trajeto.
+func (c *RiskContract) ReadTripBuffer(
+	ctx contractapi.TransactionContextInterface,
+	tripID string,
+) (*TripBuffer, error) {
+	bufferKey, err := ctx.GetStub().CreateCompositeKey("riskTrip", []string{tripID})
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar chave do trajeto: %w", err)
+	}
+	return readTripBuffer(ctx, bufferKey, tripID)
+}
+
 func (c *RiskContract) createRiskAssessment(
 	ctx contractapi.TransactionContextInterface,
 	tripID string,
@@ -184,6 +341,61 @@ func (c *RiskContract) createRiskAssessment(
 	}
 
 	return assessment, nil
+}
+
+func readTripBuffer(ctx contractapi.TransactionContextInterface, key, tripID string) (*TripBuffer, error) {
+	payload, err := ctx.GetStub().GetState(key)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao consultar trajeto: %w", err)
+	}
+	if payload == nil {
+		return &TripBuffer{TripID: tripID}, nil
+	}
+	var buffer TripBuffer
+	if err := json.Unmarshal(payload, &buffer); err != nil {
+		return nil, fmt.Errorf("trajeto armazenado inválido: %w", err)
+	}
+	return &buffer, nil
+}
+
+func writeTripBuffer(ctx contractapi.TransactionContextInterface, key string, buffer *TripBuffer) error {
+	payload, err := json.Marshal(buffer)
+	if err != nil {
+		return fmt.Errorf("erro ao serializar trajeto: %w", err)
+	}
+	if err := ctx.GetStub().PutState(key, payload); err != nil {
+		return fmt.Errorf("erro ao gravar trajeto: %w", err)
+	}
+	return nil
+}
+
+func readBufferedReadings(ctx contractapi.TransactionContextInterface, tripID string) ([]Reading, error) {
+	iterator, err := ctx.GetStub().GetStateByPartialCompositeKey("riskReading", []string{tripID})
+	if err != nil {
+		return nil, fmt.Errorf("erro ao consultar leituras do trajeto: %w", err)
+	}
+	defer iterator.Close()
+
+	var readings []Reading
+	for iterator.HasNext() {
+		entry, err := iterator.Next()
+		if err != nil {
+			return nil, fmt.Errorf("erro ao percorrer leituras do trajeto: %w", err)
+		}
+		var buffered BufferedReading
+		if err := json.Unmarshal(entry.Value, &buffered); err != nil {
+			return nil, fmt.Errorf("leitura armazenada inválida: %w", err)
+		}
+		reading, err := parseTextReading(buffered.Timestamp, buffered.Latitude, buffered.Longitude, buffered.VehicleSpeed)
+		if err != nil {
+			return nil, fmt.Errorf("leitura %d inválida: %w", buffered.Sequence, err)
+		}
+		readings = append(readings, reading)
+	}
+	if err := validateReadings(readings); err != nil {
+		return nil, err
+	}
+	return readings, nil
 }
 
 func decompressReadings(compressedReadings string) (string, error) {
@@ -278,26 +490,85 @@ func parseAndValidateReadings(readingsJSON string) ([]Reading, error) {
 	if err := json.Unmarshal([]byte(readingsJSON), &readings); err != nil {
 		return nil, fmt.Errorf("readingsJSON inválido: %w", err)
 	}
-	if len(readings) < 2 {
-		return nil, errors.New("são necessárias ao menos 2 leituras")
+	if err := validateReadings(readings); err != nil {
+		return nil, err
 	}
+	return readings, nil
+}
 
+func parseTextReading(timestampText, latitudeText, longitudeText, speedText string) (Reading, error) {
+	const localLayout = "2006-01-02 15:04:05.000"
+	location := time.FixedZone("America/Sao_Paulo", -3*60*60)
+
+	timestampText = strings.TrimSpace(timestampText)
+	var timestamp time.Time
+	var err error
+	for _, layout := range []string{time.RFC3339Nano, localLayout, "2006-01-02 15:04:05"} {
+		if layout == time.RFC3339Nano {
+			timestamp, err = time.Parse(layout, timestampText)
+		} else {
+			timestamp, err = time.ParseInLocation(layout, timestampText, location)
+		}
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		return Reading{}, fmt.Errorf("timestamp inválido: %q", timestampText)
+	}
+	latitude, err := parseTextFloat(latitudeText, "latitude")
+	if err != nil {
+		return Reading{}, err
+	}
+	longitude, err := parseTextFloat(longitudeText, "longitude")
+	if err != nil {
+		return Reading{}, err
+	}
+	speed, err := parseTextFloat(speedText, "velocidade")
+	if err != nil {
+		return Reading{}, err
+	}
+	reading := Reading{Timestamp: timestamp, Lat: latitude, Lon: longitude, SpeedKmh: speed}
+	if err := validateReading(reading); err != nil {
+		return Reading{}, err
+	}
+	return reading, nil
+}
+
+func parseTextFloat(value, field string) (float64, error) {
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+		return 0, fmt.Errorf("%s inválida: %q", field, value)
+	}
+	return parsed, nil
+}
+
+func validateReadings(readings []Reading) error {
+	if len(readings) < 2 {
+		return errors.New("são necessárias ao menos 2 leituras")
+	}
 	for index, reading := range readings {
-		if reading.Timestamp.IsZero() {
-			return nil, fmt.Errorf("leitura %d não possui timestamp", index)
-		}
-		if reading.SpeedKmh < 0 || math.IsNaN(reading.SpeedKmh) || math.IsInf(reading.SpeedKmh, 0) {
-			return nil, fmt.Errorf("velocidade inválida na leitura %d", index)
-		}
-		if reading.Lat < -90 || reading.Lat > 90 || reading.Lon < -180 || reading.Lon > 180 {
-			return nil, fmt.Errorf("coordenada inválida na leitura %d", index)
+		if err := validateReading(reading); err != nil {
+			return fmt.Errorf("leitura %d: %w", index, err)
 		}
 		if index > 0 && !reading.Timestamp.After(readings[index-1].Timestamp) {
-			return nil, fmt.Errorf("timestamps devem estar em ordem crescente: leitura %d", index)
+			return fmt.Errorf("timestamps devem estar em ordem crescente: leitura %d", index)
 		}
 	}
+	return nil
+}
 
-	return readings, nil
+func validateReading(reading Reading) error {
+	if reading.Timestamp.IsZero() {
+		return errors.New("não possui timestamp")
+	}
+	if reading.SpeedKmh < 0 || math.IsNaN(reading.SpeedKmh) || math.IsInf(reading.SpeedKmh, 0) {
+		return errors.New("velocidade inválida")
+	}
+	if reading.Lat < -90 || reading.Lat > 90 || reading.Lon < -180 || reading.Lon > 180 {
+		return errors.New("coordenada inválida")
+	}
+	return nil
 }
 
 func validateCalibration(calibration Calibration) error {

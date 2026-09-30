@@ -1,7 +1,8 @@
 # Chaincode de fator de risco
 
-Este chaincode recebe leituras de telemetria em JSON, aplica as tres metricas
-comportamentais e calcula o fator de risco normalizado `R_i`.
+Este chaincode recebe leituras de telemetria em JSON ou uma leitura OBD por
+vez em campos textuais, aplica as três métricas comportamentais e calcula o
+fator de risco normalizado `R_i`.
 
 Os pesos da calibração são derivados das porcentagens relativas de acidentes
 das três funções consideradas no modelo: aceleração/desaceleração (16,12%),
@@ -52,10 +53,20 @@ R_i = w_A·Ā_i + w_D·D̄_i + w_T·M_T,i
 
 - `EvaluateTripRisk(readingsJSON)`: calcula o resultado sem gravar no ledger.
 - `CreateRiskAssessment(tripID, readingsJSON)`: calcula e grava o resultado.
+- `AddReading(tripID, timestamp, latitude, longitude, vehicleSpeed)`: recebe
+  uma leitura textual, valida os campos e a armazena no trajeto ainda aberto.
+- `FinalizeTrip(tripID)`: reúne as leituras armazenadas, calcula e grava a
+  avaliação final; depois disso o trajeto não aceita novas leituras.
+- `ReadTripBuffer(tripID)`: consulta a quantidade de leituras recebidas e se
+  o trajeto já foi finalizado.
 - `ReadRiskAssessment(tripID)`: consulta um resultado ja gravado.
 
 `CreateRiskAssessment` guarda as metricas, o fator de risco e a calibracao no
 ledger. O mesmo `tripID` nao pode ser gravado duas vezes.
+
+No modo de leitura individual, os campos recebidos permanecem como texto no
+ledger para auditoria. O contrato converte e valida cada valor antes de
+aceitá-lo; timestamps devem chegar em ordem crescente.
 
 ## Formato das leituras
 
