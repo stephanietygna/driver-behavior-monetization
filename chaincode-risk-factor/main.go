@@ -110,7 +110,7 @@ func defaultCalibration() Calibration {
 		MaxSampleGapSeconds:              10,
 		SharpTurnAngleThresholdRad:       0.7,
 		SharpTurnSpeedThresholdKmh:       30.0,
-		FatigueThresholdMinutes:          80,
+		FatigueThresholdMinutes:          10,
 		StoppedSpeedThreshold:            3.0,
 		MinValidPauseMinutes:             5,
 		// Pesos normalizados das porcentagens relativas de acidentes das três
