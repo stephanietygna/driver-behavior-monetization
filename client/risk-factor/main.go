@@ -5,12 +5,15 @@
 //	cd ~/driver-behavior-monetization/client/risk-factor
 //	go run main.go -trip-id obd-15-spin-trajeto-t2
 //
-// O cliente lê o CSV, mostra cada leitura no terminal e, ao final, envia uma
-// única transação à blockchain. Assim o resultado representa o trajeto inteiro
-// sem criar uma transação para cada uma das milhares de leituras.
+// O cliente aceita dois formatos de entrada:
+//   1. CSV padronizado: timestamp, lat, lon, vehicle_speed e id_route;
+//   2. CSV Logger: Time (sec), Latitude (deg), Longitude (deg) e
+//      Velocidade do veículo (km/h). Neste caso, o StartTime da primeira
+//      linha é combinado com Time (sec) para formar cada timestamp.
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
@@ -61,7 +64,7 @@ type Assessment struct {
 
 func main() {
 	inputPath := flag.String("input", "../../data/obd_clean.csv", "caminho do CSV OBD")
-	routeID := flag.String("route", "obd-15-spin-trajeto-t1", "valor de id_route a processar")
+	routeID := flag.String("route", "obd-15-spin-trajeto-t1", "valor de id_route a processar no CSV padronizado")
 	tripID := flag.String("trip-id", "", "identificador novo e único do trajeto no ledger")
 	configPath := flag.String("config", "../../resources/inmetro.yaml", "arquivo de configuração da rede")
 	verbose := flag.Bool("verbose", true, "mostrar cada leitura do CSV no terminal")
@@ -93,12 +96,12 @@ func main() {
 	}
 
 	fmt.Printf("\n%d leituras prontas para o trajeto %q.\n", len(readings), *tripID)
-	fmt.Printf("Enviando uma única avaliação do trajeto à blockchain...\n\n")
+	fmt.Println("Enviando uma única avaliação do trajeto à blockchain...\n")
 	assessment := invokeCompressed(*configPath, *tripID, compressed)
 	printAssessment(assessment)
 }
 
-// readCSV converte apenas os campos necessários para as métricas do contrato.
+// readCSV aceita o CSV padronizado do projeto e o CSV do Logger.
 func readCSV(path, routeID string, verbose bool) []Reading {
 	file, err := os.Open(path)
 	if err != nil {
@@ -106,21 +109,20 @@ func readCSV(path, routeID string, verbose bool) []Reading {
 	}
 	defer file.Close()
 
-	reader := csv.NewReader(file)
-	reader.FieldsPerRecord = -1
-	header, err := reader.Read()
-	if err != nil {
-		fatal("não foi possível ler o cabeçalho: %v", err)
-	}
+	reader, header, startTime, firstDataLine := openCSV(file)
 	columns := indexes(header)
-	for _, column := range []string{"timestamp", "lat", "lon", "vehicle_speed", "id_route"} {
-		if _, ok := columns[column]; !ok {
-			fatal("coluna obrigatória ausente: %s", column)
-		}
+
+	standardFormat := hasColumns(columns, "timestamp", "lat", "lon", "vehicle_speed", "id_route")
+	loggerFormat := hasColumns(columns, "time (sec)", "latitude (deg)", "longitude (deg)", "velocidade do veículo (km/h)")
+	if !standardFormat && !loggerFormat {
+		fatal("formato de CSV não reconhecido: use timestamp/lat/lon/vehicle_speed/id_route ou Time (sec)/Latitude (deg)/Longitude (deg)/Velocidade do veículo (km/h)")
+	}
+	if loggerFormat && startTime.IsZero() {
+		fatal("CSV Logger sem StartTime na primeira linha")
 	}
 
 	var readings []Reading
-	for line := 2; ; line++ {
+	for line := firstDataLine; ; line++ {
 		record, err := reader.Read()
 		if err == io.EOF {
 			break
@@ -128,16 +130,28 @@ func readCSV(path, routeID string, verbose bool) []Reading {
 		if err != nil {
 			fatal("erro na linha %d do CSV: %v", line, err)
 		}
-		if routeID != "" && value(record, columns, "id_route") != routeID {
-			continue
+
+		var reading Reading
+		if standardFormat {
+			if routeID != "" && value(record, columns, "id_route") != routeID {
+				continue
+			}
+			reading = Reading{
+				Timestamp: parseTimestamp(value(record, columns, "timestamp"), line),
+				Lat:       parseFloat(value(record, columns, "lat"), "latitude", line),
+				Lon:       parseFloat(value(record, columns, "lon"), "longitude", line),
+				SpeedKmh:  parseFloat(value(record, columns, "vehicle_speed"), "velocidade", line),
+			}
+		} else {
+			seconds := parseFloat(value(record, columns, "time (sec)"), "tempo", line)
+			reading = Reading{
+				Timestamp: startTime.Add(time.Duration(seconds * float64(time.Second))),
+				Lat:       parseFloat(value(record, columns, "latitude (deg)"), "latitude", line),
+				Lon:       parseFloat(value(record, columns, "longitude (deg)"), "longitude", line),
+				SpeedKmh:  parseFloat(value(record, columns, "velocidade do veículo (km/h)"), "velocidade", line),
+			}
 		}
 
-		reading := Reading{
-			Timestamp: parseTimestamp(value(record, columns, "timestamp"), line),
-			Lat:       parseFloat(value(record, columns, "lat"), "latitude", line),
-			Lon:       parseFloat(value(record, columns, "lon"), "longitude", line),
-			SpeedKmh:  parseFloat(value(record, columns, "vehicle_speed"), "velocidade", line),
-		}
 		readings = append(readings, reading)
 		if verbose {
 			fmt.Printf("Leitura %d | %s | lat %.6f | lon %.6f | velocidade %.2f km/h\n",
@@ -148,6 +162,80 @@ func readCSV(path, routeID string, verbose bool) []Reading {
 		fatal("o trajeto precisa conter ao menos duas leituras")
 	}
 	return readings
+}
+
+// openCSV identifica o delimitador e, nos arquivos Logger, lê o StartTime.
+func openCSV(file *os.File) (*csv.Reader, []string, time.Time, int) {
+	buffered := bufio.NewReader(file)
+	firstLine, err := buffered.ReadString('\n')
+	if err != nil && err != io.EOF {
+		fatal("não foi possível ler o CSV: %v", err)
+	}
+	if firstLine == "" {
+		fatal("CSV vazio")
+	}
+
+	firstLine = strings.TrimPrefix(firstLine, "\ufeff")
+	startTime := time.Time{}
+	headerLine := firstLine
+	firstDataLine := 2
+	if strings.HasPrefix(strings.TrimSpace(firstLine), "#") {
+		startTime = parseLoggerStartTime(firstLine)
+		headerLine, err = buffered.ReadString('\n')
+		if err != nil && err != io.EOF {
+			fatal("não foi possível ler o cabeçalho: %v", err)
+		}
+		if headerLine == "" {
+			fatal("CSV sem cabeçalho")
+		}
+		firstDataLine = 3
+	}
+
+	separator := detectSeparator(headerLine)
+	headerReader := csv.NewReader(strings.NewReader(headerLine))
+	headerReader.Comma = separator
+	headerReader.FieldsPerRecord = -1
+	header, err := headerReader.Read()
+	if err != nil {
+		fatal("não foi possível ler o cabeçalho: %v", err)
+	}
+
+	reader := csv.NewReader(buffered)
+	reader.Comma = separator
+	reader.FieldsPerRecord = -1
+	return reader, header, startTime, firstDataLine
+}
+
+func parseLoggerStartTime(line string) time.Time {
+	parts := strings.SplitN(line, "=", 2)
+	if len(parts) != 2 {
+		fatal("StartTime inválido: %q", strings.TrimSpace(line))
+	}
+	text := strings.TrimSpace(parts[1])
+	location := time.FixedZone("America/Sao_Paulo", -3*60*60)
+	for _, layout := range []string{"01/02/2006 03:04:05.0000 PM", "01/02/2006 03:04:05 PM"} {
+		if timestamp, err := time.ParseInLocation(layout, text, location); err == nil {
+			return timestamp
+		}
+	}
+	fatal("StartTime inválido: %q", text)
+	return time.Time{}
+}
+
+func detectSeparator(header string) rune {
+	if strings.Count(header, ";") > strings.Count(header, ",") {
+		return ';'
+	}
+	return ','
+}
+
+func hasColumns(columns map[string]int, required ...string) bool {
+	for _, column := range required {
+		if _, ok := columns[normalizeColumnName(column)]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func invokeCompressed(configPath, tripID, compressedReadings string) Assessment {
@@ -308,13 +396,17 @@ func validateTimeline(readings []Reading) {
 func indexes(header []string) map[string]int {
 	result := make(map[string]int, len(header))
 	for index, name := range header {
-		result[strings.TrimSpace(name)] = index
+		result[normalizeColumnName(name)] = index
 	}
 	return result
 }
 
+func normalizeColumnName(name string) string {
+	return strings.ToLower(strings.TrimSpace(strings.TrimPrefix(name, "\ufeff")))
+}
+
 func value(record []string, columns map[string]int, name string) string {
-	index := columns[name]
+	index := columns[normalizeColumnName(name)]
 	if index >= len(record) {
 		return ""
 	}
@@ -322,6 +414,7 @@ func value(record []string, columns map[string]int, name string) string {
 }
 
 func parseFloat(text, field string, line int) float64 {
+	text = strings.ReplaceAll(strings.TrimSpace(text), ",", ".")
 	result, err := strconv.ParseFloat(text, 64)
 	if err != nil {
 		fatal("%s inválida na linha %d: %v", field, line, err)
