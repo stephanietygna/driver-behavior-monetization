@@ -54,6 +54,13 @@ type Assessment struct {
 		ExcessMinutes            float64 `json:"excessMinutes"`
 		ValidPauseCount          int     `json:"validPauseCount"`
 		TotalValidPauseMinutes   float64 `json:"totalValidPauseMinutes"`
+		Periods                  []struct {
+			StartedAt         time.Time `json:"startedAt"`
+			EndedAt           time.Time `json:"endedAt"`
+			DurationMinutes   float64   `json:"durationMinutes"`
+			ExcessMinutes     float64   `json:"excessMinutes"`
+			PauseAfterMinutes float64   `json:"pauseAfterMinutes"`
+		} `json:"periods"`
 	} `json:"fatigue"`
 	Calibration struct {
 		FatigueThresholdMinutes int64   `json:"fatigueThresholdMinutes"`
@@ -395,6 +402,23 @@ func printAssessment(assessment Assessment) {
 	fmt.Printf("   Excesso de fadiga: %s\n", formatMinutes(assessment.Fatigue.ExcessMinutes))
 	fmt.Printf("   Métrica normalizada (M_T,i): %.4f\n", assessment.Fatigue.Metric)
 	fmt.Println("   M_T,i representa a parcela do tempo total conduzida além do limiar.")
+	if len(assessment.Fatigue.Periods) > 0 {
+		fmt.Println("   Períodos contínuos analisados:")
+		for index, period := range assessment.Fatigue.Periods {
+			fmt.Printf("      %d. %s até %s: %s", index+1,
+				period.StartedAt.Format("15:04:05"), period.EndedAt.Format("15:04:05"),
+				formatMinutes(period.DurationMinutes))
+			if period.ExcessMinutes > 0 {
+				fmt.Printf(" | excesso: %s", formatMinutes(period.ExcessMinutes))
+			} else {
+				fmt.Print(" | sem excesso")
+			}
+			if period.PauseAfterMinutes > 0 {
+				fmt.Printf(" | pausa válida depois: %s", formatMinutes(period.PauseAfterMinutes))
+			}
+			fmt.Println()
+		}
+	}
 
 	accelerationContribution := assessment.Calibration.WeightAnomalousAccel * assessment.AccelerationMetric
 	turnContribution := assessment.Calibration.WeightSharpTurn * assessment.TurnMetric
