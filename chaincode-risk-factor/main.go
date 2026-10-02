@@ -175,12 +175,46 @@ func (c *RiskContract) AddReading(
 	longitude string,
 	vehicleSpeed string,
 ) (*TripBuffer, error) {
-	if tripID == "" {
-		return nil, errors.New("tripID é obrigatório")
-	}
 	reading, err := parseTextReading(timestamp, latitude, longitude, vehicleSpeed)
 	if err != nil {
 		return nil, err
+	}
+	return c.appendReadings(ctx, tripID, []Reading{reading})
+}
+
+// AddReadingsCompressed recebe um pequeno bloco de leituras compactadas. Esse
+// formato evita o limite de tamanho de argumentos do sistema operacional em
+// CSVs extensos, sem alterar as equações do contrato. Cada bloco ainda é
+// validado, registrado no ledger e mantido na ordem temporal do trajeto.
+func (c *RiskContract) AddReadingsCompressed(
+	ctx contractapi.TransactionContextInterface,
+	tripID string,
+	compressedReadings string,
+) (*TripBuffer, error) {
+	readingsJSON, err := decompressReadings(compressedReadings)
+	if err != nil {
+		return nil, err
+	}
+	readings, err := parseAndValidateReadings(readingsJSON)
+	if err != nil {
+		return nil, err
+	}
+	return c.appendReadings(ctx, tripID, readings)
+}
+
+// appendReadings é a implementação compartilhada pelos modos individual e em
+// blocos. O buffer é escrito apenas uma vez ao final da transação, enquanto
+// cada leitura recebe uma chave própria para permitir auditoria posterior.
+func (c *RiskContract) appendReadings(
+	ctx contractapi.TransactionContextInterface,
+	tripID string,
+	readings []Reading,
+) (*TripBuffer, error) {
+	if tripID == "" {
+		return nil, errors.New("tripID é obrigatório")
+	}
+	if len(readings) == 0 {
+		return nil, errors.New("o bloco deve conter ao menos uma leitura")
 	}
 
 	bufferKey, err := ctx.GetStub().CreateCompositeKey("riskTrip", []string{tripID})
@@ -194,31 +228,33 @@ func (c *RiskContract) AddReading(
 	if buffer.Finalized {
 		return nil, fmt.Errorf("o trajeto %q já foi finalizado", tripID)
 	}
-	if buffer.ReadingCount > 0 && !reading.Timestamp.After(buffer.LastTimestamp) {
-		return nil, errors.New("a leitura deve possuir timestamp posterior ao da leitura anterior")
-	}
+	for _, reading := range readings {
+		if buffer.ReadingCount > 0 && !reading.Timestamp.After(buffer.LastTimestamp) {
+			return nil, errors.New("a leitura deve possuir timestamp posterior ao da leitura anterior")
+		}
 
-	sequence := buffer.ReadingCount + 1
-	readingKey, err := ctx.GetStub().CreateCompositeKey("riskReading", []string{tripID, fmt.Sprintf("%010d", sequence)})
-	if err != nil {
-		return nil, fmt.Errorf("erro ao criar chave da leitura: %w", err)
-	}
-	payload, err := json.Marshal(BufferedReading{
-		Sequence:     sequence,
-		Timestamp:    timestamp,
-		Latitude:     latitude,
-		Longitude:    longitude,
-		VehicleSpeed: vehicleSpeed,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("erro ao serializar leitura: %w", err)
-	}
-	if err := ctx.GetStub().PutState(readingKey, payload); err != nil {
-		return nil, fmt.Errorf("erro ao gravar leitura: %w", err)
-	}
+		sequence := buffer.ReadingCount + 1
+		readingKey, err := ctx.GetStub().CreateCompositeKey("riskReading", []string{tripID, fmt.Sprintf("%010d", sequence)})
+		if err != nil {
+			return nil, fmt.Errorf("erro ao criar chave da leitura: %w", err)
+		}
+		payload, err := json.Marshal(BufferedReading{
+			Sequence:     sequence,
+			Timestamp:    reading.Timestamp.Format(time.RFC3339Nano),
+			Latitude:     strconv.FormatFloat(reading.Lat, 'f', -1, 64),
+			Longitude:    strconv.FormatFloat(reading.Lon, 'f', -1, 64),
+			VehicleSpeed: strconv.FormatFloat(reading.SpeedKmh, 'f', -1, 64),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("erro ao serializar leitura: %w", err)
+		}
+		if err := ctx.GetStub().PutState(readingKey, payload); err != nil {
+			return nil, fmt.Errorf("erro ao gravar leitura: %w", err)
+		}
 
-	buffer.ReadingCount = sequence
-	buffer.LastTimestamp = reading.Timestamp
+		buffer.ReadingCount = sequence
+		buffer.LastTimestamp = reading.Timestamp
+	}
 	if err := writeTripBuffer(ctx, bufferKey, buffer); err != nil {
 		return nil, err
 	}

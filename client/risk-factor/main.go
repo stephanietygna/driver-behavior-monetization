@@ -62,6 +62,10 @@ type Assessment struct {
 	RiskFactor float64 `json:"riskFactor"`
 }
 
+// maxSingleArgumentBytes deixa margem abaixo do limite do sistema para a
+// chamada ao kubectl. Acima disso, o cliente usa blocos compactados.
+const maxSingleArgumentBytes = 80_000
+
 func main() {
 	inputPath := flag.String("input", "../../data/obd_clean.csv", "caminho do CSV OBD")
 	routeID := flag.String("route", "obd-15-spin-trajeto-t1", "valor de id_route a processar no CSV padronizado")
@@ -69,6 +73,7 @@ func main() {
 	configPath := flag.String("config", "../../resources/inmetro.yaml", "arquivo de configuração da rede")
 	verbose := flag.Bool("verbose", true, "mostrar cada leitura do CSV no terminal")
 	stream := flag.Bool("stream", false, "enviar cada leitura como uma transação antes de finalizar o trajeto")
+	batchSize := flag.Int("batch-size", 500, "leituras por transação no envio em blocos")
 	flag.Parse()
 
 	if *tripID == "" {
@@ -83,6 +88,9 @@ func main() {
 		printAssessment(assessment)
 		return
 	}
+	if *batchSize < 1 {
+		fatal("-batch-size deve ser maior que zero")
+	}
 
 	// O JSON é compactado somente para caber no limite de argumentos do terminal.
 	// O chaincode descompacta e calcula o mesmo R_i que calcularia com JSON puro.
@@ -93,6 +101,13 @@ func main() {
 	compressed, err := gzipBase64(payload)
 	if err != nil {
 		fatal("não foi possível compactar leituras: %v", err)
+	}
+	if len(compressed) > maxSingleArgumentBytes {
+		fmt.Printf("\n%d leituras prontas para o trajeto %q.\n", len(readings), *tripID)
+		fmt.Printf("O arquivo é grande para uma única transação; enviando em blocos de %d leituras...\n", *batchSize)
+		assessment := invokeBatches(*configPath, *tripID, readings, *batchSize)
+		printAssessment(assessment)
+		return
 	}
 
 	fmt.Printf("\n%d leituras prontas para o trajeto %q.\n", len(readings), *tripID)
@@ -241,6 +256,30 @@ func hasColumns(columns map[string]int, required ...string) bool {
 func invokeCompressed(configPath, tripID, compressedReadings string) Assessment {
 	output := invokeOutput(configPath, "CreateRiskAssessmentCompressed", tripID, compressedReadings)
 	return parseAssessment(output)
+}
+
+// invokeBatches registra blocos compactados no ledger. É indicado para CSVs
+// grandes: preserva todas as leituras para auditoria, mas reduz drasticamente
+// o número de transações quando comparado ao modo -stream.
+func invokeBatches(configPath, tripID string, readings []Reading, batchSize int) Assessment {
+	for start := 0; start < len(readings); start += batchSize {
+		end := start + batchSize
+		if end > len(readings) {
+			end = len(readings)
+		}
+		payload, err := json.Marshal(readings[start:end])
+		if err != nil {
+			fatal("não foi possível gerar o bloco de leituras: %v", err)
+		}
+		compressed, err := gzipBase64(payload)
+		if err != nil {
+			fatal("não foi possível compactar o bloco de leituras: %v", err)
+		}
+		invokeOutput(configPath, "AddReadingsCompressed", tripID, compressed)
+		fmt.Printf("   %d/%d leituras registradas\n", end, len(readings))
+	}
+	fmt.Println("Finalizando o trajeto e calculando o fator de risco...\n")
+	return parseAssessment(invokeOutput(configPath, "FinalizeTrip", tripID))
 }
 
 // invokeStream reproduz um fluxo OBD: cada leitura é registrada como texto no
