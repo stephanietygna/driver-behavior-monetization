@@ -74,6 +74,9 @@ type FatigueMetrics struct {
 	TotalDrivingMinutes      float64 `json:"totalDrivingMinutes"`
 	LongestContinuousMinutes float64 `json:"longestContinuousMinutes"`
 	ExcessMinutes            float64 `json:"excessMinutes"`
+	// Os campos abaixo deixam explícitas as pausas que reiniciaram a contagem.
+	ValidPauseCount        int     `json:"validPauseCount"`
+	TotalValidPauseMinutes float64 `json:"totalValidPauseMinutes"`
 }
 
 // RiskAssessment é gravado no ledger após uma transação bem-sucedida.
@@ -110,7 +113,7 @@ func defaultCalibration() Calibration {
 		MaxSampleGapSeconds:              10,
 		SharpTurnAngleThresholdRad:       0.7,
 		SharpTurnSpeedThresholdKmh:       30.0,
-		FatigueThresholdMinutes:          10,
+		FatigueThresholdMinutes:          80,
 		StoppedSpeedThreshold:            3.0,
 		MinValidPauseMinutes:             5,
 		// Pesos normalizados das porcentagens relativas de acidentes das três
@@ -729,10 +732,10 @@ func angleDifference(a, b float64) float64 {
 }
 
 func analyzeFatigue(readings []Reading, calibration Calibration) FatigueMetrics {
-	periods := continuousDrivingPeriods(readings, calibration)
+	periods, validPauses := continuousDrivingPeriods(readings, calibration)
 	fatigueLimit := time.Duration(calibration.FatigueThresholdMinutes) * time.Minute
 
-	var totalDuration, totalExcess, longestPeriod time.Duration
+	var totalDuration, totalExcess, longestPeriod, totalPauseDuration time.Duration
 	for _, period := range periods {
 		totalDuration += period
 		if period > longestPeriod {
@@ -741,6 +744,9 @@ func analyzeFatigue(readings []Reading, calibration Calibration) FatigueMetrics 
 		if period > fatigueLimit {
 			totalExcess += period - fatigueLimit
 		}
+	}
+	for _, pause := range validPauses {
+		totalPauseDuration += pause
 	}
 	if totalDuration == 0 {
 		return FatigueMetrics{}
@@ -751,12 +757,15 @@ func analyzeFatigue(readings []Reading, calibration Calibration) FatigueMetrics 
 		TotalDrivingMinutes:      totalDuration.Minutes(),
 		LongestContinuousMinutes: longestPeriod.Minutes(),
 		ExcessMinutes:            totalExcess.Minutes(),
+		ValidPauseCount:          len(validPauses),
+		TotalValidPauseMinutes:   totalPauseDuration.Minutes(),
 	}
 	return metrics
 }
 
-func continuousDrivingPeriods(readings []Reading, calibration Calibration) []time.Duration {
+func continuousDrivingPeriods(readings []Reading, calibration Calibration) ([]time.Duration, []time.Duration) {
 	var periods []time.Duration
+	var validPauses []time.Duration
 	drivingStart := readings[0].Timestamp
 	isStopped := false
 	var stoppedSince time.Time
@@ -771,8 +780,10 @@ func continuousDrivingPeriods(readings []Reading, calibration Calibration) []tim
 	for i := 1; i < len(readings); i++ {
 		reading := readings[i]
 		if reading.SpeedKmh > calibration.StoppedSpeedThreshold {
-			if isStopped && reading.Timestamp.Sub(stoppedSince) >= minimumPause {
+			pauseDuration := reading.Timestamp.Sub(stoppedSince)
+			if isStopped && pauseDuration >= minimumPause {
 				closePeriod(stoppedSince)
+				validPauses = append(validPauses, pauseDuration)
 				drivingStart = reading.Timestamp
 			}
 			isStopped = false
@@ -789,7 +800,7 @@ func continuousDrivingPeriods(readings []Reading, calibration Calibration) []tim
 		periodEnd = stoppedSince
 	}
 	closePeriod(periodEnd)
-	return periods
+	return periods, validPauses
 }
 
 func main() {

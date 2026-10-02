@@ -6,10 +6,10 @@
 //	go run main.go -trip-id obd-15-spin-trajeto-t2
 //
 // O cliente aceita dois formatos de entrada:
-//   1. CSV padronizado: timestamp, lat, lon, vehicle_speed e id_route;
-//   2. CSV Logger: Time (sec), Latitude (deg), Longitude (deg) e
-//      Velocidade do veículo (km/h). Neste caso, o StartTime da primeira
-//      linha é combinado com Time (sec) para formar cada timestamp.
+//  1. CSV padronizado: timestamp, lat, lon, vehicle_speed e id_route;
+//  2. CSV Logger: Time (sec), Latitude (deg), Longitude (deg) e
+//     Velocidade do veículo (km/h). Neste caso, o StartTime da primeira
+//     linha é combinado com Time (sec) para formar cada timestamp.
 package main
 
 import (
@@ -52,6 +52,8 @@ type Assessment struct {
 		TotalDrivingMinutes      float64 `json:"totalDrivingMinutes"`
 		LongestContinuousMinutes float64 `json:"longestContinuousMinutes"`
 		ExcessMinutes            float64 `json:"excessMinutes"`
+		ValidPauseCount          int     `json:"validPauseCount"`
+		TotalValidPauseMinutes   float64 `json:"totalValidPauseMinutes"`
 	} `json:"fatigue"`
 	Calibration struct {
 		FatigueThresholdMinutes int64   `json:"fatigueThresholdMinutes"`
@@ -384,6 +386,11 @@ func printAssessment(assessment Assessment) {
 	fmt.Println("\n3. FADIGA")
 	fmt.Printf("   Tempo total de condução: %s\n", formatMinutes(assessment.Fatigue.TotalDrivingMinutes))
 	fmt.Printf("   Maior período contínuo: %s\n", formatMinutes(assessment.Fatigue.LongestContinuousMinutes))
+	if assessment.Fatigue.ValidPauseCount > 0 {
+		fmt.Printf("   Pausas válidas detectadas: %d (%s no total)\n", assessment.Fatigue.ValidPauseCount, formatMinutes(assessment.Fatigue.TotalValidPauseMinutes))
+	} else {
+		fmt.Println("   Pausas válidas detectadas: 0")
+	}
 	fmt.Printf("   Limite configurado: %d min\n", assessment.Calibration.FatigueThresholdMinutes)
 	fmt.Printf("   Excesso de fadiga: %s\n", formatMinutes(assessment.Fatigue.ExcessMinutes))
 	fmt.Printf("   Métrica normalizada (M_T,i): %.4f\n", assessment.Fatigue.Metric)
